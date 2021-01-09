@@ -15,6 +15,16 @@ impl<T> AsyncOnceCell<T> {
         }
     }
 
+    pub fn with_val(val: T) -> Self {
+        let cell = OnceCell::new();
+        cell.get_or_init(|| val);
+
+        Self {
+            cell,
+            lock: Mutex::const_new(()),
+        }
+    }
+
     pub fn get(&self) -> Option<&T> {
         self.cell.get()
     }
