@@ -88,42 +88,6 @@ impl<T> QueueRwLock<T> {
     pub fn try_read_for(&self, timeout: Duration) -> Option<RwLockReadGuard<'_, T>> {
         self.lock.try_read_for(timeout)
     }
-
-    /// Attempts to lock this `RwLock` with exclusive write access.
-    ///
-    /// If the lock could not be acquired at this time, then `None` is returned.
-    /// Otherwise, an RAII guard is returned which will release the lock when
-    /// it is dropped.
-    ///
-    /// This function does not block.
-    #[inline]
-    pub fn try_write(&self) -> Option<RwLockWriteGuard<'_, T>> {
-        self.lock.try_write()
-    }
-
-    /// Attempts to acquire this `RwLock` with exclusive write access until a
-    /// timeout is reached.
-    ///
-    /// If the access could not be granted before the timeout expires, then
-    /// `None` is returned. Otherwise, an RAII guard is returned which will
-    /// release the exclusive access when it is dropped.
-    #[inline]
-    pub fn try_write_for(&self, timeout: Duration) -> Option<RwLockWriteGuard<'_, T>> {
-        self.lock.try_write_for(timeout)
-    }
-
-    /// Locks this `RwLock` with exclusive write access, blocking the current
-    /// thread until it can be acquired.
-    ///
-    /// This function will not return while other writers or other readers
-    /// currently have access to the lock.
-    ///
-    /// Returns an RAII guard which will drop the write access of this `RwLock`
-    /// when dropped.
-    #[inline]
-    pub fn write(&self) -> RwLockWriteGuard<'_, T> {
-        self.lock.write()
-    }
 }
 
 /// A ticket to obtain a write access to the RwLock.
@@ -137,13 +101,37 @@ pub struct QueueWriteGuard<'a, T> {
 }
 
 impl<'a, T> QueueWriteGuard<'a, T> {
+    /// Attempts to lock this `RwLock` with exclusive write access.
+    ///
+    /// If the lock could not be acquired at this time, then `None` is returned.
+    /// Otherwise, an RAII guard is returned which will release the lock when
+    /// it is dropped.
+    ///
+    /// This function does not block.
+    #[inline]
+    pub fn try_write(self) -> Result<RwLockWriteGuard<'a, T>, Self> {
+        self.lock.try_write().ok_or(self)
+    }
+
+    /// Attempts to acquire this `RwLock` with exclusive write access until a
+    /// timeout is reached.
+    ///
+    /// If the access could not be granted before the timeout expires, then
+    /// `None` is returned. Otherwise, an RAII guard is returned which will
+    /// release the exclusive access when it is dropped.
+    #[inline]
+    pub fn try_write_for(self, timeout: Duration) -> Result<RwLockWriteGuard<'a, T>, Self> {
+        self.lock.try_write_for(timeout).ok_or(self)
+    }
+
     /// Locks this `RwLock` with exclusive write access, blocking the current
     /// thread until it can be acquired.
     ///
     /// This function will not return while other writers or other readers
     /// currently have access to the lock.
     ///
-    /// This will also release the queue so another potential writer will get access.    
+    /// This will also release the queue so another potential writer will get access.
+    #[inline]
     pub fn write(self) -> RwLockWriteGuard<'a, T> {
         self.lock.write()
     }
