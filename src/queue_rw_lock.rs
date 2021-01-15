@@ -65,6 +65,11 @@ pub struct QueueWriteGuard<'a, T> {
 }
 
 impl<'a, T> QueueWriteGuard<'a, T> {
+    #[inline]
+    pub async fn read(&self) -> RwLockReadGuard<'a, T> {
+        self.lock.read().await
+    }
+
     /// Locks this `RwLock` with exclusive write access, blocking the current
     /// thread until it can be acquired.
     ///
