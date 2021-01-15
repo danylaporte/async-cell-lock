@@ -1,6 +1,4 @@
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::Duration;
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Default)]
 pub struct QueueRwLock<T> {
@@ -49,44 +47,10 @@ impl<T> QueueRwLock<T> {
         })
     }
 
-    /// Locks this `RwLock` with shared read access, blocking the current thread
-    /// until it can be acquired.
-    ///
-    /// The calling thread will be blocked until there are no more writers which
-    /// hold the lock. There may be other readers currently inside the lock when
-    /// this method returns.
-    ///
-    /// Note that attempts to recursively acquire a read lock on a `RwLock` when
-    /// the current thread already holds one may result in a deadlock.
-    ///
-    /// Returns an RAII guard which will release this thread's shared access
-    /// once it is dropped.
+    /// Locks this `RwLock` with shared read access
     #[inline]
-    pub fn read(&self) -> RwLockReadGuard<'_, T> {
-        self.lock.read()
-    }
-
-    /// Attempts to acquire this `RwLock` with shared read access.
-    ///
-    /// If the access could not be granted at this time, then `None` is returned.
-    /// Otherwise, an RAII guard is returned which will release the shared access
-    /// when it is dropped.
-    ///
-    /// This function does not block.
-    #[inline]
-    pub fn try_read(&self) -> Option<RwLockReadGuard<'_, T>> {
-        self.lock.try_read()
-    }
-
-    /// Attempts to acquire this `RwLock` with shared read access until a timeout
-    /// is reached.
-    ///
-    /// If the access could not be granted before the timeout expires, then
-    /// `None` is returned. Otherwise, an RAII guard is returned which will
-    /// release the shared access when it is dropped.
-    #[inline]
-    pub fn try_read_for(&self, timeout: Duration) -> Option<RwLockReadGuard<'_, T>> {
-        self.lock.try_read_for(timeout)
+    pub async fn read(&self) -> RwLockReadGuard<'_, T> {
+        self.lock.read().await
     }
 }
 
@@ -101,29 +65,6 @@ pub struct QueueWriteGuard<'a, T> {
 }
 
 impl<'a, T> QueueWriteGuard<'a, T> {
-    /// Attempts to lock this `RwLock` with exclusive write access.
-    ///
-    /// If the lock could not be acquired at this time, then `None` is returned.
-    /// Otherwise, an RAII guard is returned which will release the lock when
-    /// it is dropped.
-    ///
-    /// This function does not block.
-    #[inline]
-    pub fn try_write(self) -> Result<RwLockWriteGuard<'a, T>, Self> {
-        self.lock.try_write().ok_or(self)
-    }
-
-    /// Attempts to acquire this `RwLock` with exclusive write access until a
-    /// timeout is reached.
-    ///
-    /// If the access could not be granted before the timeout expires, then
-    /// `None` is returned. Otherwise, an RAII guard is returned which will
-    /// release the exclusive access when it is dropped.
-    #[inline]
-    pub fn try_write_for(self, timeout: Duration) -> Result<RwLockWriteGuard<'a, T>, Self> {
-        self.lock.try_write_for(timeout).ok_or(self)
-    }
-
     /// Locks this `RwLock` with exclusive write access, blocking the current
     /// thread until it can be acquired.
     ///
@@ -132,7 +73,7 @@ impl<'a, T> QueueWriteGuard<'a, T> {
     ///
     /// This will also release the queue so another potential writer will get access.
     #[inline]
-    pub fn write(self) -> RwLockWriteGuard<'a, T> {
-        self.lock.write()
+    pub async fn write(self) -> RwLockWriteGuard<'a, T> {
+        self.lock.write().await
     }
 }
