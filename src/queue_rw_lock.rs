@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[derive(Default)]
@@ -35,15 +36,17 @@ impl<T> QueueRwLock<T> {
         QueueWriteGuard {
             _queue: self.queue.lock().await,
             lock: &self.lock,
+            read: self.lock.read().await,
         }
     }
 
     /// Attempts to acquire the queue, and returns `None` if any
     /// somewhere else is in the queue.
-    pub fn try_queue(&self) -> Option<QueueWriteGuard<'_, T>> {
+    pub async fn try_queue(&self) -> Option<QueueWriteGuard<'_, T>> {
         Some(QueueWriteGuard {
             _queue: self.queue.try_lock().ok()?,
             lock: &self.lock,
+            read: self.read().await,
         })
     }
 
@@ -62,14 +65,10 @@ impl<T> QueueRwLock<T> {
 pub struct QueueWriteGuard<'a, T> {
     _queue: MutexGuard<'a, ()>,
     lock: &'a RwLock<T>,
+    read: RwLockReadGuard<'a, T>,
 }
 
 impl<'a, T> QueueWriteGuard<'a, T> {
-    #[inline]
-    pub async fn read(&self) -> RwLockReadGuard<'a, T> {
-        self.lock.read().await
-    }
-
     /// Locks this `RwLock` with exclusive write access, blocking the current
     /// thread until it can be acquired.
     ///
@@ -80,5 +79,13 @@ impl<'a, T> QueueWriteGuard<'a, T> {
     #[inline]
     pub async fn write(self) -> RwLockWriteGuard<'a, T> {
         self.lock.write().await
+    }
+}
+
+impl<'a, T> Deref for QueueWriteGuard<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.read
     }
 }
