@@ -46,14 +46,36 @@ impl<T> QueueRwLock<T> {
         Some(QueueWriteGuard {
             _queue: self.queue.try_lock().ok()?,
             lock: &self.lock,
-            read: self.read().await,
+            read: self.lock.read().await,
         })
     }
 
     /// Locks this `RwLock` with shared read access
     #[inline]
-    pub async fn read(&self) -> RwLockReadGuard<'_, T> {
-        self.lock.read().await
+    pub async fn read(&self) -> QueueRwLockReadGuard<'_, T> {
+        QueueRwLockReadGuard {
+            queue: self,
+            read: self.lock.read().await,
+        }
+    }
+}
+
+pub struct QueueRwLockReadGuard<'a, T> {
+    queue: &'a QueueRwLock<T>,
+    read: RwLockReadGuard<'a, T>,
+}
+
+impl<'a, T> QueueRwLockReadGuard<'a, T> {
+    pub async fn queue(self) -> QueueWriteGuard<'a, T> {
+        self.queue.queue().await
+    }
+}
+
+impl<'a, T> Deref for QueueRwLockReadGuard<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.read
     }
 }
 
