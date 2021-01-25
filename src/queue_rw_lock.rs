@@ -100,6 +100,7 @@ impl<'a, T> QueueWriteGuard<'a, T> {
     /// This will also release the queue so another potential writer will get access.
     #[inline]
     pub async fn write(self) -> RwLockWriteGuard<'a, T> {
+        drop(self.read);
         self.lock.write().await
     }
 }
