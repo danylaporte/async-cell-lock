@@ -87,3 +87,12 @@ impl<T> AsyncOnceCell<T> {
         self.cell.take()
     }
 }
+
+impl<T> Default for AsyncOnceCell<T> {
+    fn default() -> Self {
+        Self {
+            cell: OnceCell::new(),
+            lock: Mutex::new(()),
+        }
+    }
+}
