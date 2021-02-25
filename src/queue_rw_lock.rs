@@ -74,15 +74,6 @@ impl<'a, T> QueueRwLockReadGuard<'a, T> {
     }
 }
 
-impl<'a, T, U> AsRef<U> for QueueRwLockReadGuard<'a, T>
-where
-    T: AsRef<U>,
-{
-    fn as_ref(&self) -> &U {
-        self.read.as_ref()
-    }
-}
-
 impl<'a, T> Deref for QueueRwLockReadGuard<'a, T> {
     type Target = T;
 
@@ -125,15 +116,6 @@ impl<'a, T> QueueRwLockQueueGuard<'a, T> {
     }
 }
 
-impl<'a, T, U> AsRef<U> for QueueRwLockQueueGuard<'a, T>
-where
-    T: AsRef<U>,
-{
-    fn as_ref(&self) -> &U {
-        self.read.as_ref()
-    }
-}
-
 impl<'a, T> Deref for QueueRwLockQueueGuard<'a, T> {
     type Target = T;
 
@@ -162,15 +144,6 @@ where
 {
     fn as_mut(&mut self) -> &mut U {
         self.write.as_mut()
-    }
-}
-
-impl<'a, T, U> AsRef<U> for QueueRwLockWriteGuard<'a, T>
-where
-    T: AsRef<U>,
-{
-    fn as_ref(&self) -> &U {
-        self.write.as_ref()
     }
 }
 
