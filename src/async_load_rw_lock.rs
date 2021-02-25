@@ -1,5 +1,6 @@
 use std::{fmt, future::Future, mem::replace, ops};
-use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+pub use tokio::sync::RwLockWriteGuard;
+use tokio::sync::{RwLock, RwLockReadGuard};
 
 pub struct AsyncLoadRwLock<T>(RwLock<Option<T>>);
 
