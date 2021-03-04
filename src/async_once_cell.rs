@@ -51,6 +51,10 @@ impl<T> AsyncOnceCell<T> {
         self.cell.get_or_init(|| v)
     }
 
+    pub fn get_or_init_sync<F: FnOnce() -> T>(&self, f: F) -> &T {
+        self.cell.get_or_init(f)
+    }
+
     pub async fn get_or_try_init<F, E>(&self, f: F) -> Result<&T, E>
     where
         F: Future<Output = Result<T, E>>,
@@ -67,6 +71,10 @@ impl<T> AsyncOnceCell<T> {
 
         let r = f.await;
         self.cell.get_or_try_init(|| r)
+    }
+
+    pub fn get_or_try_init_sync<E, F: FnOnce() -> Result<T, E>>(&self, f: F) -> Result<&T, E> {
+        self.cell.get_or_try_init(f)
     }
 
     pub fn into_inner(self) -> Option<T> {
