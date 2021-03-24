@@ -136,6 +136,13 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
 
         self.queue.read().await
     }
+
+    pub async fn queue(self) -> QueueRwLockQueueGuard<'a, T> {
+        // drop the write lock before trying to acquire the queue.
+        drop(self.write);
+
+        self.queue.queue().await
+    }
 }
 
 impl<'a, T, U> AsMut<U> for QueueRwLockWriteGuard<'a, T>
