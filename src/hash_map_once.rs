@@ -132,6 +132,14 @@ impl<K, V, S> Drop for HashMapOnce<K, V, S> {
     }
 }
 
+unsafe impl<K, V, S> Send for HashMapOnce<K, V, S>
+where
+    K: Send,
+    V: Send,
+    S: Send,
+{
+}
+
 pub struct Drain<K, V>(IntoIter<(K, V)>);
 
 impl<K, V> DoubleEndedIterator for Drain<K, V> {
