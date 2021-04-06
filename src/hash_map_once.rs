@@ -140,6 +140,14 @@ where
 {
 }
 
+unsafe impl<K, V, S> Sync for HashMapOnce<K, V, S>
+where
+    K: Sync,
+    V: Sync,
+    S: Sync,
+{
+}
+
 pub struct Drain<K, V>(IntoIter<(K, V)>);
 
 impl<K, V> DoubleEndedIterator for Drain<K, V> {
