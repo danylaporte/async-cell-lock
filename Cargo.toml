@@ -6,6 +6,12 @@ edition = "2018"
 publish = false
 
 [dependencies]
+actix_web_04 = { package = "actix-web", version = "4.0.0-beta.7", optional = true }
 once_cell = { version = "1" }
 parking_lot = "0.11"
-tokio = { version = "1", features = ["parking_lot", "sync"] }
+static_init = "1"
+tokio = { version = "1", features = ["parking_lot", "rt", "sync"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "parking_lot", "rt", "sync"] }
