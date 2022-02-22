@@ -5,6 +5,7 @@ use crate::{
 use std::{
     fmt::{self, Debug, Display, Formatter},
     ops::{Deref, DerefMut},
+    time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -45,13 +46,15 @@ impl<T> QueueRwLock<T> {
 
         self.detector.check(id, Access::Queue).map_err(trace)?;
 
+        // mutex must be locked first, before the read.
         let mutex = self.mutex.lock().await;
+        let read = self.read_internal(id, Access::Queue).await.map_err(trace)?;
 
         Ok(QueueRwLockQueueGuard {
-            // mutex must be locked first, before the read.
+            instant: Instant::now(),
             mutex,
             queue: self,
-            read: self.read_internal(id, Access::Queue).await.map_err(trace)?,
+            read,
         })
     }
 
@@ -61,11 +64,13 @@ impl<T> QueueRwLock<T> {
         // mutex must be locked first, before the read.
         let mutex = self.mutex.try_lock().ok()?;
         let id = task_id().expect("try_queue::task_id");
+        let read = self.read_internal(id, Access::Queue).await.ok()?;
 
         Some(QueueRwLockQueueGuard {
+            instant: Instant::now(),
             mutex,
             queue: self,
-            read: self.read_internal(id, Access::Queue).await.ok()?,
+            read,
         })
     }
 
@@ -73,11 +78,9 @@ impl<T> QueueRwLock<T> {
     #[inline]
     pub async fn read(&self) -> Result<QueueRwLockReadGuard<'_, T>, Error> {
         let id = task_id()?;
+        let read = self.read_internal(id, Access::Read).await?;
 
-        Ok(QueueRwLockReadGuard {
-            queue: self,
-            read: self.read_internal(id, Access::Read).await?,
-        })
+        Ok(QueueRwLockReadGuard { queue: self, read })
     }
 
     async fn read_internal(
@@ -143,12 +146,17 @@ where
 /// obtaining the write access to the RwLock. This makes sure that the
 /// RwLock will be held exclusively as short as possible.
 pub struct QueueRwLockQueueGuard<'a, T> {
+    instant: Instant,
     mutex: MutexGuard<'a, ()>,
     queue: &'a QueueRwLock<T>,
     read: DLGuard<'a, RwLockReadGuard<'a, T>>,
 }
 
 impl<'a, T> QueueRwLockQueueGuard<'a, T> {
+    pub fn elapsed(&self) -> Duration {
+        self.instant.elapsed()
+    }
+
     /// Locks this `RwLock` with exclusive write access, blocking the current
     /// thread until it can be acquired.
     ///
@@ -267,6 +275,7 @@ fn trace(e: Error) -> Error {
     e
 }
 
+#[cfg(test)]
 #[tokio::test]
 async fn check_deadlock() -> Result<(), Error> {
     crate::with_deadlock_check(async move {
@@ -298,6 +307,7 @@ async fn check_deadlock() -> Result<(), Error> {
     .await
 }
 
+#[cfg(test)]
 #[tokio::test]
 async fn should_error_if_run_without_deadlock_check() {
     let lock = QueueRwLock::new(());

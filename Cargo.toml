@@ -2,16 +2,16 @@
 name = "async-cell-lock"
 version = "1.0.1-alpha.0"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
-edition = "2018"
+edition = "2021"
 publish = false
 
 [dependencies]
-actix_web_04 = { package = "actix-web", version = "4.0.0-beta.7", optional = true }
+actix_web_04 = { package = "actix-web", version = "4.0.0-rc.3", optional = true }
 once_cell = { version = "1" }
-parking_lot = "0.11"
+parking_lot = "0.12"
 static_init = "1"
-tokio = { version = "1", features = ["parking_lot", "rt", "sync"] }
+tokio = { version = "1", features = ["parking_lot", "rt", "sync"], default-features = false }
 tracing = "0.1"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "parking_lot", "rt", "sync"] }
+tokio = { version = "1", features = ["macros", "parking_lot", "rt", "sync"], default-features = false }

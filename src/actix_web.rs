@@ -41,7 +41,7 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = Error;
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
+    type Future = LocalBoxFuture<Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
@@ -51,3 +51,5 @@ where
         Box::pin(with_deadlock_check(self.service.call(req)))
     }
 }
+
+type LocalBoxFuture<T> = Pin<Box<dyn Future<Output = T>>>;

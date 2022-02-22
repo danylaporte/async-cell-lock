@@ -122,7 +122,7 @@ pub async fn with_deadlock_check<F, R>(f: F) -> R
 where
     F: std::future::Future<Output = R>,
 {
-    if LOCKS.try_with(|_| {}).is_err() {
+    if LOCKS.try_with(|_| ()).is_err() {
         LOCKS.scope(COUNTER.fetch_add(1, Relaxed), f).await
     } else {
         f.await
