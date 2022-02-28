@@ -6,7 +6,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
-actix_web_04 = { package = "actix-web", version = "4.0.0-rc.3", optional = true }
+actix_web_04 = { package = "actix-web", version = "4.0", optional = true }
 once_cell = { version = "1" }
 parking_lot = "0.12"
 static_init = "1"
