@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use tracing::instrument;
 
 pub struct QueueRwLock<T> {
     detector: DLDetector,
@@ -41,6 +42,7 @@ impl<T> QueueRwLock<T> {
     }
 
     /// Enqueue to gain access to the write.
+    #[instrument(level = "trace", skip_all, err)]
     pub async fn queue(&self) -> Result<QueueRwLockQueueGuard<'_, T>, Error> {
         let id = task_id()?;
 
@@ -60,6 +62,7 @@ impl<T> QueueRwLock<T> {
 
     /// Attempts to acquire the queue, and returns `None` if any
     /// somewhere else is in the queue.
+    #[instrument(level = "trace", skip_all)]
     pub async fn try_queue(&self) -> Option<QueueRwLockQueueGuard<'_, T>> {
         // mutex must be locked first, before the read.
         let mutex = self.mutex.try_lock().ok()?;
@@ -76,6 +79,7 @@ impl<T> QueueRwLock<T> {
 
     /// Locks this `RwLock` with shared read access
     #[inline]
+    #[instrument(level = "trace", skip_all, err)]
     pub async fn read(&self) -> Result<QueueRwLockReadGuard<'_, T>, Error> {
         let id = task_id()?;
         let read = self.read_internal(id, Access::Read).await?;
@@ -108,6 +112,7 @@ pub struct QueueRwLockReadGuard<'a, T> {
 }
 
 impl<'a, T> QueueRwLockReadGuard<'a, T> {
+    #[instrument(level = "trace", skip_all, err)]
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
         drop(self.read);
         self.queue.queue().await
@@ -165,6 +170,7 @@ impl<'a, T> QueueRwLockQueueGuard<'a, T> {
     ///
     /// This will also release the queue so another potential writer will get access.
     #[inline]
+    #[instrument(level = "trace", skip_all, err)]
     pub async fn write(self) -> Result<QueueRwLockWriteGuard<'a, T>, Error> {
         // the read lock must be dropped before trying to acquire write lock.
         drop(self.read);
@@ -214,6 +220,7 @@ pub struct QueueRwLockWriteGuard<'a, T> {
 }
 
 impl<'a, T> QueueRwLockWriteGuard<'a, T> {
+    #[instrument(level = "trace", skip_all, err)]
     pub async fn read(self) -> Result<QueueRwLockReadGuard<'a, T>, Error> {
         // drop the write lock before trying to acquire the read.
         drop(self.write);
@@ -221,6 +228,7 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
         self.queue.read().await
     }
 
+    #[instrument(level = "trace", skip_all, err)]
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
         // drop the write lock before trying to acquire the queue.
         drop(self.write);

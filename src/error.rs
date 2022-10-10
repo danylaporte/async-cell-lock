@@ -3,7 +3,7 @@ use std::{
     fmt::{self, Formatter},
 };
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Error {
     DeadlockDetected,
     NotDeadlockCheckFuture,
