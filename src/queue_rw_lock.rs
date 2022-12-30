@@ -201,7 +201,7 @@ impl<'a, T> Deref for QueueRwLockQueueGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &*self.read
+        &self.read
     }
 }
 

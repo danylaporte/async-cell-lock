@@ -133,5 +133,4 @@ tokio::task_local! {
     static LOCKS: u64;
 }
 
-#[static_init::dynamic]
 static COUNTER: AtomicU64 = AtomicU64::new(0);
