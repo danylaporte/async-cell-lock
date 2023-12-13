@@ -3,7 +3,7 @@ use std::{
     cell::Cell,
     time::{Duration, Instant},
 };
-use tracing::{error, warn};
+use tracing::{warn_span, error_span};
 
 /// A deadlock detector.
 pub(crate) struct DLDetector;
@@ -43,7 +43,7 @@ impl Drop for DLGuard {
         let elasped = self.instant.elapsed();
 
         if elasped > LONG_LOCK {
-            warn!("Locked for too long {}secs", elasped.as_secs());
+            let _ = warn_span!("Locked for too long", elapsed = elasped.as_secs()).entered();
         }
 
         TASK.try_with(|task| task.set(task.get().unlock()))
@@ -109,7 +109,7 @@ impl Default for TaskData {
 }
 
 fn deadlock_detected() -> Result<TaskData, Error> {
-    error!("Deadlock detected");
+    let _ = error_span!("deadlock detected").entered();
     Err(Error::DeadlockDetected)
 }
 
@@ -120,7 +120,7 @@ pub(crate) fn lock_held_count() -> Result<usize, Error> {
 }
 
 fn not_deadlock_check_future() -> Error {
-    error!("Not a deadlock check future");
+    let _ = error_span!("Not a deadlock check future").entered();
     Error::NotDeadlockCheckFuture
 }
 
@@ -128,6 +128,6 @@ fn not_deadlock_check_future() -> Error {
 /// This is useful to prevent a lock from being held while a call api.
 pub fn warn_lock_held() {
     if let Some(_) = lock_held_count().ok().filter(|v| *v > 0) {
-        tracing::warn!("lock held");
+        let _ = warn_span!("lock held").entered();
     }
 }
