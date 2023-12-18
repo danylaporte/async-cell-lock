@@ -1,6 +1,6 @@
 use crate::{
     deadlock::{DLDetector, DLGuard},
-    Error,
+    Error, LongLock,
 };
 use std::{
     fmt::{self, Debug, Display, Formatter},
@@ -49,6 +49,7 @@ impl<T> QueueRwLock<T> {
 
         Ok(QueueRwLockQueueGuard {
             deadlock,
+            longlock: LongLock::new(),
             mutex,
             queue: self,
             read,
@@ -62,6 +63,7 @@ impl<T> QueueRwLock<T> {
 
         Ok(QueueRwLockReadGuard {
             deadlock,
+            longlock: LongLock::new(),
             queue: self,
             read,
         })
@@ -78,6 +80,7 @@ impl<T> QueueRwLock<T> {
 
         Some(QueueRwLockQueueGuard {
             deadlock,
+            longlock: LongLock::new(),
             mutex,
             queue: self,
             read,
@@ -93,6 +96,7 @@ impl<T: Default> Default for QueueRwLock<T> {
 
 pub struct QueueRwLockReadGuard<'a, T> {
     deadlock: DLGuard,
+    longlock: LongLock,
     queue: &'a QueueRwLock<T>,
     read: RwLockReadGuard<'a, T>,
 }
@@ -101,6 +105,7 @@ impl<'a, T> QueueRwLockReadGuard<'a, T> {
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
         drop(self.read);
         drop(self.deadlock);
+        drop(self.longlock);
 
         self.queue.queue().await
     }
@@ -140,6 +145,7 @@ where
 /// RwLock will be held exclusively as short as possible.
 pub struct QueueRwLockQueueGuard<'a, T> {
     deadlock: DLGuard,
+    longlock: LongLock,
     mutex: MutexGuard<'a, ()>,
     queue: &'a QueueRwLock<T>,
     read: RwLockReadGuard<'a, T>,
@@ -147,7 +153,7 @@ pub struct QueueRwLockQueueGuard<'a, T> {
 
 impl<'a, T> QueueRwLockQueueGuard<'a, T> {
     pub fn elapsed(&self) -> Duration {
-        self.deadlock.instant.elapsed()
+        self.longlock.elapsed()
     }
 
     /// Locks this `RwLock` with exclusive write access, blocking the current
@@ -167,9 +173,11 @@ impl<'a, T> QueueRwLockQueueGuard<'a, T> {
 
         // emphasis here that the mutex must be dropped after the write.
         drop(self.mutex);
+        drop(self.longlock);
 
         Ok(QueueRwLockWriteGuard {
             deadlock,
+            longlock: LongLock::new(),
             queue,
             write,
         })
@@ -205,6 +213,7 @@ where
 
 pub struct QueueRwLockWriteGuard<'a, T> {
     deadlock: DLGuard,
+    longlock: LongLock,
     queue: &'a QueueRwLock<T>,
     write: RwLockWriteGuard<'a, T>,
 }
@@ -214,6 +223,7 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
         // drop the write lock before trying to acquire the read.
         drop(self.write);
         drop(self.deadlock);
+        drop(self.longlock);
 
         self.queue.read().await
     }
@@ -222,6 +232,7 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
         // drop the write lock before trying to acquire the queue.
         drop(self.write);
         drop(self.deadlock);
+        drop(self.longlock);
 
         self.queue.queue().await
     }

@@ -1,51 +1,28 @@
 use crate::Error;
-use std::{
-    cell::Cell,
-    time::{Duration, Instant},
-};
-use tracing::{warn_span, error_span};
+use std::cell::Cell;
+use tracing::{error_span, warn_span};
 
 /// A deadlock detector.
 pub(crate) struct DLDetector;
 
 impl DLDetector {
     pub fn read(&self) -> Result<DLGuard, Error> {
-        TASK
-            .try_with(|task| Ok(task.set(task.get().read()?)))
+        TASK.try_with(|task| Ok(task.set(task.get().read()?)))
             .map_err(|_| not_deadlock_check_future())
-            .and_then(|r| r.map(|_| DLGuard::new()))
+            .and_then(|r| r.map(|_| DLGuard))
     }
 
     pub fn write(&self) -> Result<DLGuard, Error> {
-        TASK
-            .try_with(|task| Ok(task.set(task.get().write()?)))
+        TASK.try_with(|task| Ok(task.set(task.get().write()?)))
             .map_err(|_| not_deadlock_check_future())
-            .and_then(|r| r.map(|_| DLGuard::new()))
+            .and_then(|r| r.map(|_| DLGuard))
     }
 }
 
-pub(crate) struct DLGuard {
-    pub instant: Instant,
-}
-
-impl DLGuard {
-    fn new() -> Self {
-        Self {
-            instant: Instant::now()
-        }
-    }
-}
+pub(crate) struct DLGuard;
 
 impl Drop for DLGuard {
     fn drop(&mut self) {
-        const LONG_LOCK: Duration = Duration::from_secs(30);
-
-        let elasped = self.instant.elapsed();
-
-        if elasped > LONG_LOCK {
-            let _ = warn_span!("Locked for too long", elapsed = elasped.as_secs()).entered();
-        }
-
         TASK.try_with(|task| task.set(task.get().unlock()))
             .expect("Not deadlock future");
     }
