@@ -7,15 +7,21 @@ pub(crate) struct DLDetector;
 
 impl DLDetector {
     pub fn read(&self) -> Result<DLGuard, Error> {
-        TASK.try_with(|task| Ok(task.set(task.get().read()?)))
-            .map_err(|_| not_deadlock_check_future())
-            .and_then(|r| r.map(|_| DLGuard))
+        TASK.try_with(|task| {
+            task.set(task.get().read()?);
+            Ok(())
+        })
+        .map_err(|_| not_deadlock_check_future())
+        .and_then(|r| r.map(|_| DLGuard))
     }
 
     pub fn write(&self) -> Result<DLGuard, Error> {
-        TASK.try_with(|task| Ok(task.set(task.get().write()?)))
-            .map_err(|_| not_deadlock_check_future())
-            .and_then(|r| r.map(|_| DLGuard))
+        TASK.try_with(|task| {
+            task.set(task.get().write()?);
+            Ok(())
+        })
+        .map_err(|_| not_deadlock_check_future())
+        .and_then(|r| r.map(|_| DLGuard))
     }
 }
 
@@ -104,7 +110,7 @@ fn not_deadlock_check_future() -> Error {
 /// Log a "lock held" warn in the trace if a lock is currently active.
 /// This is useful to prevent a lock from being held while a call api.
 pub fn warn_lock_held() {
-    if let Some(_) = lock_held_count().ok().filter(|v| *v > 0) {
+    if lock_held_count().ok().filter(|v| *v > 0).is_some() {
         let _ = warn_span!("lock held").entered();
     }
 }

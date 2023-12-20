@@ -7,9 +7,13 @@ publish = false
 
 [dependencies]
 actix_web_04 = { package = "actix-web", version = "4", optional = true }
+metrics = { version = "0.21", optional = true }
 once_cell = { version = "1" }
 tokio = { version = "1", features = ["parking_lot", "rt", "sync"], default-features = false }
 tracing = "0.1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "parking_lot", "rt", "sync"], default-features = false }
+
+[features]
+telemetry = ["metrics"]
