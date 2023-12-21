@@ -29,8 +29,7 @@ pub(crate) struct DLGuard;
 
 impl Drop for DLGuard {
     fn drop(&mut self) {
-        TASK.try_with(|task| task.set(task.get().unlock()))
-            .expect("Not deadlock future");
+        let _ = TASK.try_with(|task| task.set(task.get().unlock()));
     }
 }
 
