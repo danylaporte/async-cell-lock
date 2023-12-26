@@ -1,6 +1,5 @@
 use crate::Error;
 use std::cell::Cell;
-use tracing::{error_span, warn_span};
 
 /// A deadlock detector.
 pub(crate) struct DLDetector;
@@ -91,25 +90,34 @@ impl Default for TaskData {
 }
 
 fn deadlock_detected() -> Result<TaskData, Error> {
-    let _ = error_span!("deadlock detected").entered();
+    #[cfg(feature = "telemetry")]
+    {
+        let _ = tracing::error_span!("deadlock detected").entered();
+    }
+
     Err(Error::DeadlockDetected)
 }
 
 /// Gets a count of currently active locks in the task.
-pub(crate) fn lock_held_count() -> Result<usize, Error> {
+pub fn lock_held_count() -> Result<usize, Error> {
     TASK.try_with(|d| d.get().count())
         .map_err(|_| Error::NotDeadlockCheckFuture)
 }
 
 fn not_deadlock_check_future() -> Error {
-    let _ = error_span!("Not a deadlock check future").entered();
+    #[cfg(feature = "telemetry")]
+    {
+        let _ = tracing::error_span!("Not a deadlock check future").entered();
+    }
+
     Error::NotDeadlockCheckFuture
 }
 
 /// Log a "lock held" warn in the trace if a lock is currently active.
 /// This is useful to prevent a lock from being held while a call api.
+#[cfg(feature = "telemetry")]
 pub fn warn_lock_held() {
     if lock_held_count().ok().filter(|v| *v > 0).is_some() {
-        let _ = warn_span!("lock held").entered();
+        let _ = tracing::warn_span!("lock held").entered();
     }
 }

@@ -1,10 +1,10 @@
 use crate::{
     deadlock::{DLDetector, DLGuard},
-    Error, LongLock,
+    wait_lock_guard::WaitLockGuard,
+    ActiveLockGuard, Error,
 };
 use std::{
     fmt::{self, Debug, Display, Formatter},
-    future::Future,
     ops::{Deref, DerefMut},
     time::Duration,
 };
@@ -43,22 +43,13 @@ impl<T> QueueRwLock<T> {
     /// Enqueue to gain access to the write.
     pub async fn queue(&self) -> Result<QueueRwLockQueueGuard<'_, T>, Error> {
         let deadlock = self.detector.write()?;
-
-        let (mutex, read) = telemetry(
-            async move {
-                // mutex must be locked first, before the read.
-                let mutex = self.mutex.lock().await;
-                let read = self.rwlock.read().await;
-
-                (mutex, read)
-            },
-            "queue",
-        )
-        .await;
+        let wait = WaitLockGuard::new("queue");
+        let mutex = self.mutex.lock().await;
+        let read = self.rwlock.read().await;
 
         Ok(QueueRwLockQueueGuard {
+            active: ActiveLockGuard::new(wait),
             deadlock,
-            longlock: LongLock::new("queue"),
             mutex,
             queue: self,
             read,
@@ -68,11 +59,12 @@ impl<T> QueueRwLock<T> {
     /// Locks this `RwLock` with shared read access
     pub async fn read(&self) -> Result<QueueRwLockReadGuard<'_, T>, Error> {
         let deadlock = self.detector.read()?;
-        let read = telemetry(self.rwlock.read(), "read").await;
+        let wait = WaitLockGuard::new("read");
+        let read = self.rwlock.read().await;
 
         Ok(QueueRwLockReadGuard {
+            active: ActiveLockGuard::new(wait),
             deadlock,
-            longlock: LongLock::new("read"),
             queue: self,
             read,
         })
@@ -82,16 +74,15 @@ impl<T> QueueRwLock<T> {
     /// somewhere else is in the queue.
     pub fn try_queue(&self) -> Option<QueueRwLockQueueGuard<'_, T>> {
         let deadlock = self.detector.write().ok()?;
+        let wait = WaitLockGuard::new("queue");
 
         // mutex must be locked first, before the read.
         let mutex = self.mutex.try_lock().ok()?;
         let read = self.rwlock.try_read().ok()?;
 
-        instant_lock("queue");
-
         Some(QueueRwLockQueueGuard {
+            active: ActiveLockGuard::new(wait),
             deadlock,
-            longlock: LongLock::new("queue"),
             mutex,
             queue: self,
             read,
@@ -106,15 +97,15 @@ impl<T: Default> Default for QueueRwLock<T> {
 }
 
 pub struct QueueRwLockReadGuard<'a, T> {
+    active: ActiveLockGuard,
     deadlock: DLGuard,
-    longlock: LongLock,
     queue: &'a QueueRwLock<T>,
     read: RwLockReadGuard<'a, T>,
 }
 
 impl<'a, T> QueueRwLockReadGuard<'a, T> {
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
-        drop(self.longlock);
+        drop(self.active);
         drop(self.read);
         drop(self.deadlock);
 
@@ -155,8 +146,8 @@ where
 /// obtaining the write access to the RwLock. This makes sure that the
 /// RwLock will be held exclusively as short as possible.
 pub struct QueueRwLockQueueGuard<'a, T> {
+    active: ActiveLockGuard,
     deadlock: DLGuard,
-    longlock: LongLock,
     mutex: MutexGuard<'a, ()>,
     queue: &'a QueueRwLock<T>,
     read: RwLockReadGuard<'a, T>,
@@ -164,7 +155,7 @@ pub struct QueueRwLockQueueGuard<'a, T> {
 
 impl<'a, T> QueueRwLockQueueGuard<'a, T> {
     pub fn elapsed(&self) -> Duration {
-        self.longlock.elapsed()
+        self.active.elapsed()
     }
 
     /// Locks this `RwLock` with exclusive write access, blocking the current
@@ -176,19 +167,20 @@ impl<'a, T> QueueRwLockQueueGuard<'a, T> {
     /// This will also release the queue so another potential writer will get access.
     pub async fn write(self) -> Result<QueueRwLockWriteGuard<'a, T>, Error> {
         // the read lock must be dropped before trying to acquire write lock.
-        drop(self.longlock);
+        drop(self.active);
         drop(self.read);
 
         let deadlock = self.deadlock;
         let queue = self.queue;
-        let write = telemetry(queue.rwlock.write(), "write").await;
+        let wait = WaitLockGuard::new("write");
+        let write = queue.rwlock.write().await;
 
         // emphasis here that the mutex must be dropped after the write.
         drop(self.mutex);
 
         Ok(QueueRwLockWriteGuard {
+            active: ActiveLockGuard::new(wait),
             deadlock,
-            longlock: LongLock::new("write"),
             queue,
             write,
         })
@@ -223,8 +215,8 @@ where
 }
 
 pub struct QueueRwLockWriteGuard<'a, T> {
+    active: ActiveLockGuard,
     deadlock: DLGuard,
-    longlock: LongLock,
     queue: &'a QueueRwLock<T>,
     write: RwLockWriteGuard<'a, T>,
 }
@@ -234,7 +226,7 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
         // drop the write lock before trying to acquire the read.
         drop(self.write);
         drop(self.deadlock);
-        drop(self.longlock);
+        drop(self.active);
 
         self.queue.read().await
     }
@@ -243,7 +235,7 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
         // drop the write lock before trying to acquire the queue.
         drop(self.write);
         drop(self.deadlock);
-        drop(self.longlock);
+        drop(self.active);
 
         self.queue.queue().await
     }
@@ -365,45 +357,4 @@ async fn should_error_if_run_without_deadlock_check() {
         lock_held_count().unwrap_err(),
         Error::NotDeadlockCheckFuture
     );
-}
-
-#[cfg(not(feature = "telemetry"))]
-async fn telemetry<F>(f: F, _op: &'static str) -> F::Output
-where
-    F: Future,
-{
-    f.await
-}
-
-#[cfg(feature = "telemetry")]
-async fn telemetry<F>(f: F, op: &'static str) -> F::Output
-where
-    F: Future,
-{
-    const LONG: Duration = Duration::from_millis(500);
-
-    metrics::increment_gauge!("queue_rw_lock_waiting_gauge", 1.0, "op" => op);
-
-    let d = std::time::Instant::now();
-    let r = f.await;
-    let d = d.elapsed();
-
-    if d >= LONG {
-        tracing::debug!(elapsed = d.as_millis(), op = op, "acquire_queue_rw_delayed");
-    }
-
-    metrics::decrement_gauge!("queue_rw_lock_waiting_gauge", 1.0, "op" => op);
-    metrics::counter!("queue_rw_lock_waiting_ms", d.as_millis() as u64, "op" => op);
-    instant_lock(op);
-
-    r
-}
-
-#[cfg(not(feature = "telemetry"))]
-fn instant_lock(_op: &'static str) {}
-
-#[cfg(feature = "telemetry")]
-fn instant_lock(op: &'static str) {
-    metrics::counter!("queue_rw_lock_count", 1, "op" => op);
-    metrics::increment_gauge!("queue_rw_lock_active_gauge", 1.0, "op" => op);
 }
