@@ -104,6 +104,10 @@ pub struct QueueRwLockReadGuard<'a, T> {
 }
 
 impl<'a, T> QueueRwLockReadGuard<'a, T> {
+    pub fn elapsed(&self) -> Duration {
+        self.active.elapsed()
+    }
+    
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
         drop(self.active);
         drop(self.read);
