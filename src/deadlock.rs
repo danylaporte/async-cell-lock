@@ -5,19 +5,14 @@ use std::cell::Cell;
 pub(crate) struct DLDetector;
 
 impl DLDetector {
-    pub fn read(&self) -> Result<DLGuard, Error> {
-        TASK.try_with(|task| {
-            task.set(task.get().read()?);
-            Ok(())
-        })
-        .map_err(|_| not_deadlock_check_future())
-        .and_then(|r| r.map(|_| DLGuard))
-    }
-
-    pub fn write(&self) -> Result<DLGuard, Error> {
-        TASK.try_with(|task| {
-            task.set(task.get().write()?);
-            Ok(())
+    pub(crate) fn lock(&self) -> Result<DLGuard, Error> {
+        TASK.try_with(|locked| {
+            if locked.get() {
+                deadlock_detected()
+            } else {
+                locked.set(true);
+                Ok(())
+            }
         })
         .map_err(|_| not_deadlock_check_future())
         .and_then(|r| r.map(|_| DLGuard))
@@ -28,7 +23,7 @@ pub(crate) struct DLGuard;
 
 impl Drop for DLGuard {
     fn drop(&mut self) {
-        let _ = TASK.try_with(|task| task.set(task.get().unlock()));
+        let _ = TASK.try_with(|locked| locked.set(false));
     }
 }
 
@@ -44,52 +39,10 @@ where
 }
 
 tokio::task_local! {
-    static TASK: Cell<TaskData>;
+    static TASK: Cell<bool>;
 }
 
-#[derive(Clone, Copy)]
-enum TaskData {
-    Read(usize),
-    Write,
-}
-
-impl TaskData {
-    fn read(&self) -> Result<TaskData, Error> {
-        match self {
-            Self::Read(v) => Ok(Self::Read(v + 1)),
-            Self::Write => deadlock_detected(),
-        }
-    }
-
-    fn count(self) -> usize {
-        match self {
-            Self::Read(v) => v,
-            Self::Write => 1,
-        }
-    }
-
-    fn unlock(self) -> Self {
-        match self {
-            Self::Read(v) => Self::Read(v.saturating_sub(1)),
-            Self::Write => Self::Read(0),
-        }
-    }
-
-    fn write(&self) -> Result<TaskData, Error> {
-        match self {
-            Self::Read(0) => Ok(Self::Write),
-            Self::Read(_) | Self::Write => deadlock_detected(),
-        }
-    }
-}
-
-impl Default for TaskData {
-    fn default() -> Self {
-        Self::Read(0)
-    }
-}
-
-fn deadlock_detected() -> Result<TaskData, Error> {
+fn deadlock_detected() -> Result<(), Error> {
     #[cfg(feature = "telemetry")]
     {
         let _ = tracing::error_span!("deadlock detected").entered();
@@ -99,8 +52,8 @@ fn deadlock_detected() -> Result<TaskData, Error> {
 }
 
 /// Gets a count of currently active locks in the task.
-pub fn lock_held_count() -> Result<usize, Error> {
-    TASK.try_with(|d| d.get().count())
+pub fn lock_held() -> Result<bool, Error> {
+    TASK.try_with(|d| d.get())
         .map_err(|_| Error::NotDeadlockCheckFuture)
 }
 
@@ -117,7 +70,7 @@ fn not_deadlock_check_future() -> Error {
 /// This is useful to prevent a lock from being held while a call api.
 #[cfg(feature = "telemetry")]
 pub fn warn_lock_held() {
-    if lock_held_count().ok().filter(|v| *v > 0).is_some() {
+    if lock_held().ok().unwrap_or_default() {
         let _ = tracing::warn_span!("lock held").entered();
     }
 }

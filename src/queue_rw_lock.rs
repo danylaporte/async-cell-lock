@@ -42,7 +42,7 @@ impl<T> QueueRwLock<T> {
 
     /// Enqueue to gain access to the write.
     pub async fn queue(&self) -> Result<QueueRwLockQueueGuard<'_, T>, Error> {
-        let deadlock = self.detector.write()?;
+        let deadlock = self.detector.lock()?;
         let wait = WaitLockGuard::new("queue");
         let mutex = self.mutex.lock().await;
         let read = self.rwlock.read().await;
@@ -58,7 +58,7 @@ impl<T> QueueRwLock<T> {
 
     /// Locks this `RwLock` with shared read access
     pub async fn read(&self) -> Result<QueueRwLockReadGuard<'_, T>, Error> {
-        let deadlock = self.detector.read()?;
+        let deadlock = self.detector.lock()?;
         let wait = WaitLockGuard::new("read");
         let read = self.rwlock.read().await;
 
@@ -73,7 +73,7 @@ impl<T> QueueRwLock<T> {
     /// Attempts to acquire the queue, and returns `None` if any
     /// somewhere else is in the queue.
     pub fn try_queue(&self) -> Option<QueueRwLockQueueGuard<'_, T>> {
-        let deadlock = self.detector.write().ok()?;
+        let deadlock = self.detector.lock().ok()?;
         let wait = WaitLockGuard::new("queue");
 
         // mutex must be locked first, before the read.
@@ -107,7 +107,7 @@ impl<'a, T> QueueRwLockReadGuard<'a, T> {
     pub fn elapsed(&self) -> Duration {
         self.active.elapsed()
     }
-    
+
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
         drop(self.active);
         drop(self.read);
@@ -292,14 +292,13 @@ where
 #[cfg(test)]
 #[tokio::test]
 async fn check_deadlock() -> Result<(), Error> {
-    use crate::deadlock::lock_held_count;
+    use crate::deadlock::lock_held;
 
     crate::with_deadlock_check(async move {
         let lock = QueueRwLock::new(());
-
         let q = lock.queue().await?;
 
-        assert_eq!(lock_held_count().unwrap(), 1);
+        assert!(lock_held().unwrap());
 
         // Cannot queue or read again inside the same task.
         assert!(lock.queue().await.is_err());
@@ -307,7 +306,7 @@ async fn check_deadlock() -> Result<(), Error> {
 
         let w = q.write().await?;
 
-        assert_eq!(lock_held_count().unwrap(), 1);
+        assert!(lock_held().unwrap());
 
         // No queue or read under write
         assert!(lock.queue().await.is_err());
@@ -315,25 +314,18 @@ async fn check_deadlock() -> Result<(), Error> {
 
         drop(w);
 
-        assert_eq!(lock_held_count().unwrap(), 0);
+        assert!(!lock_held().unwrap());
 
         assert!(lock.queue().await.is_ok());
 
-        assert_eq!(lock_held_count().unwrap(), 0);
+        assert!(!lock_held().unwrap());
 
-        let l1 = lock.read().await.unwrap();
+        let _v = lock.read().await.unwrap();
 
-        assert_eq!(lock_held_count().unwrap(), 1);
+        assert!(lock_held().unwrap());
 
         // can read many time inside the same task.
-        let l2 = lock.read().await.unwrap();
-        assert_eq!(lock_held_count().unwrap(), 2);
-
-        drop(l1);
-        assert_eq!(lock_held_count().unwrap(), 1);
-
-        drop(l2);
-        assert_eq!(lock_held_count().unwrap(), 0);
+        assert!(lock.read().await.is_err());
 
         Ok(())
     })
@@ -343,7 +335,7 @@ async fn check_deadlock() -> Result<(), Error> {
 #[cfg(test)]
 #[tokio::test]
 async fn should_error_if_run_without_deadlock_check() {
-    use crate::deadlock::lock_held_count;
+    use crate::deadlock::lock_held;
 
     let lock = QueueRwLock::new(());
 
@@ -357,8 +349,5 @@ async fn should_error_if_run_without_deadlock_check() {
         Error::NotDeadlockCheckFuture
     );
 
-    assert_eq!(
-        lock_held_count().unwrap_err(),
-        Error::NotDeadlockCheckFuture
-    );
+    assert_eq!(lock_held().unwrap_err(), Error::NotDeadlockCheckFuture);
 }
