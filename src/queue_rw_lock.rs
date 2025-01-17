@@ -1,7 +1,6 @@
 use crate::{
-    deadlock::{DLDetector, DLGuard},
-    wait_lock_guard::WaitLockGuard,
-    ActiveLockGuard, Error,
+    primitives::{LockAwaitGuard, LockData, LockHeldGuard},
+    Error,
 };
 use std::{
     fmt::{self, Debug, Display, Formatter},
@@ -11,16 +10,16 @@ use std::{
 use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub struct QueueRwLock<T> {
-    detector: DLDetector,
+    lock_data: LockData,
     mutex: Mutex<()>,
     rwlock: RwLock<T>,
 }
 
 impl<T> QueueRwLock<T> {
     /// Creates a new instance of an `QueueRwLock<T>` which is unlocked.
-    pub fn new(val: T) -> Self {
+    pub fn new(val: T, lock_name: &'static str) -> Self {
         Self {
-            detector: DLDetector,
+            lock_data: LockData::new(lock_name),
             mutex: Default::default(),
             rwlock: RwLock::new(val),
         }
@@ -42,14 +41,23 @@ impl<T> QueueRwLock<T> {
 
     /// Enqueue to gain access to the write.
     pub async fn queue(&self) -> Result<QueueRwLockQueueGuard<'_, T>, Error> {
-        let deadlock = self.detector.lock()?;
-        let wait = WaitLockGuard::new("queue");
+        if let Ok(mutex) = self.mutex.try_lock() {
+            if let Ok(read) = self.rwlock.try_read() {
+                return Ok(QueueRwLockQueueGuard {
+                    active: LockHeldGuard::new_no_wait(&self.lock_data, "queue")?,
+                    mutex,
+                    queue: self,
+                    read,
+                });
+            }
+        }
+
+        let wait = LockAwaitGuard::new(&self.lock_data, "queue")?;
         let mutex = self.mutex.lock().await;
         let read = self.rwlock.read().await;
 
         Ok(QueueRwLockQueueGuard {
-            active: ActiveLockGuard::new(wait),
-            deadlock,
+            active: LockHeldGuard::new(wait)?,
             mutex,
             queue: self,
             read,
@@ -58,13 +66,19 @@ impl<T> QueueRwLock<T> {
 
     /// Locks this `RwLock` with shared read access
     pub async fn read(&self) -> Result<QueueRwLockReadGuard<'_, T>, Error> {
-        let deadlock = self.detector.lock()?;
-        let wait = WaitLockGuard::new("read");
+        if let Ok(read) = self.rwlock.try_read() {
+            return Ok(QueueRwLockReadGuard {
+                active: LockHeldGuard::new_no_wait(&self.lock_data, "read")?,
+                queue: self,
+                read,
+            });
+        }
+
+        let wait = LockAwaitGuard::new(&self.lock_data, "read")?;
         let read = self.rwlock.read().await;
 
         Ok(QueueRwLockReadGuard {
-            active: ActiveLockGuard::new(wait),
-            deadlock,
+            active: LockHeldGuard::new(wait)?,
             queue: self,
             read,
         })
@@ -73,16 +87,13 @@ impl<T> QueueRwLock<T> {
     /// Attempts to acquire the queue, and returns `None` if any
     /// somewhere else is in the queue.
     pub fn try_queue(&self) -> Option<QueueRwLockQueueGuard<'_, T>> {
-        let deadlock = self.detector.lock().ok()?;
-        let wait = WaitLockGuard::new("queue");
-
         // mutex must be locked first, before the read.
         let mutex = self.mutex.try_lock().ok()?;
         let read = self.rwlock.try_read().ok()?;
+        let active = LockHeldGuard::new_no_wait(&self.lock_data, "queue").ok()?;
 
         Some(QueueRwLockQueueGuard {
-            active: ActiveLockGuard::new(wait),
-            deadlock,
+            active,
             mutex,
             queue: self,
             read,
@@ -92,13 +103,12 @@ impl<T> QueueRwLock<T> {
 
 impl<T: Default> Default for QueueRwLock<T> {
     fn default() -> Self {
-        QueueRwLock::new(T::default())
+        QueueRwLock::new(T::default(), stringify!(QueueRwLock<T>))
     }
 }
 
 pub struct QueueRwLockReadGuard<'a, T> {
-    active: ActiveLockGuard,
-    deadlock: DLGuard,
+    active: LockHeldGuard<'a>,
     queue: &'a QueueRwLock<T>,
     read: RwLockReadGuard<'a, T>,
 }
@@ -111,13 +121,12 @@ impl<'a, T> QueueRwLockReadGuard<'a, T> {
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
         drop(self.active);
         drop(self.read);
-        drop(self.deadlock);
 
         self.queue.queue().await
     }
 }
 
-impl<'a, T> Debug for QueueRwLockReadGuard<'a, T>
+impl<T> Debug for QueueRwLockReadGuard<'_, T>
 where
     T: Debug,
 {
@@ -126,7 +135,7 @@ where
     }
 }
 
-impl<'a, T> Deref for QueueRwLockReadGuard<'a, T> {
+impl<T> Deref for QueueRwLockReadGuard<'_, T> {
     type Target = T;
 
     #[inline]
@@ -135,7 +144,7 @@ impl<'a, T> Deref for QueueRwLockReadGuard<'a, T> {
     }
 }
 
-impl<'a, T> Display for QueueRwLockReadGuard<'a, T>
+impl<T> Display for QueueRwLockReadGuard<'_, T>
 where
     T: Display,
 {
@@ -150,8 +159,7 @@ where
 /// obtaining the write access to the RwLock. This makes sure that the
 /// RwLock will be held exclusively as short as possible.
 pub struct QueueRwLockQueueGuard<'a, T> {
-    active: ActiveLockGuard,
-    deadlock: DLGuard,
+    active: LockHeldGuard<'a>,
     mutex: MutexGuard<'a, ()>,
     queue: &'a QueueRwLock<T>,
     read: RwLockReadGuard<'a, T>,
@@ -174,24 +182,34 @@ impl<'a, T> QueueRwLockQueueGuard<'a, T> {
         drop(self.active);
         drop(self.read);
 
-        let deadlock = self.deadlock;
         let queue = self.queue;
-        let wait = WaitLockGuard::new("write");
+
+        if let Ok(write) = queue.rwlock.try_write() {
+            // emphasis here that the mutex must be dropped after the write.
+            drop(self.mutex);
+
+            return Ok(QueueRwLockWriteGuard {
+                active: LockHeldGuard::new_no_wait(&queue.lock_data, "write")?,
+                queue,
+                write,
+            });
+        }
+
+        let wait = LockAwaitGuard::new(&queue.lock_data, "write")?;
         let write = queue.rwlock.write().await;
 
         // emphasis here that the mutex must be dropped after the write.
         drop(self.mutex);
 
         Ok(QueueRwLockWriteGuard {
-            active: ActiveLockGuard::new(wait),
-            deadlock,
+            active: LockHeldGuard::new(wait)?,
             queue,
             write,
         })
     }
 }
 
-impl<'a, T> Debug for QueueRwLockQueueGuard<'a, T>
+impl<T> Debug for QueueRwLockQueueGuard<'_, T>
 where
     T: Debug,
 {
@@ -200,7 +218,7 @@ where
     }
 }
 
-impl<'a, T> Deref for QueueRwLockQueueGuard<'a, T> {
+impl<T> Deref for QueueRwLockQueueGuard<'_, T> {
     type Target = T;
 
     #[inline]
@@ -209,7 +227,7 @@ impl<'a, T> Deref for QueueRwLockQueueGuard<'a, T> {
     }
 }
 
-impl<'a, T> Display for QueueRwLockQueueGuard<'a, T>
+impl<T> Display for QueueRwLockQueueGuard<'_, T>
 where
     T: Display,
 {
@@ -219,8 +237,7 @@ where
 }
 
 pub struct QueueRwLockWriteGuard<'a, T> {
-    active: ActiveLockGuard,
-    deadlock: DLGuard,
+    active: LockHeldGuard<'a>,
     queue: &'a QueueRwLock<T>,
     write: RwLockWriteGuard<'a, T>,
 }
@@ -229,7 +246,6 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
     pub async fn read(self) -> Result<QueueRwLockReadGuard<'a, T>, Error> {
         // drop the write lock before trying to acquire the read.
         drop(self.write);
-        drop(self.deadlock);
         drop(self.active);
 
         self.queue.read().await
@@ -238,14 +254,13 @@ impl<'a, T> QueueRwLockWriteGuard<'a, T> {
     pub async fn queue(self) -> Result<QueueRwLockQueueGuard<'a, T>, Error> {
         // drop the write lock before trying to acquire the queue.
         drop(self.write);
-        drop(self.deadlock);
         drop(self.active);
 
         self.queue.queue().await
     }
 }
 
-impl<'a, T, U> AsMut<U> for QueueRwLockWriteGuard<'a, T>
+impl<T, U> AsMut<U> for QueueRwLockWriteGuard<'_, T>
 where
     T: AsMut<U>,
 {
@@ -255,7 +270,7 @@ where
     }
 }
 
-impl<'a, T> Debug for QueueRwLockWriteGuard<'a, T>
+impl<T> Debug for QueueRwLockWriteGuard<'_, T>
 where
     T: Debug,
 {
@@ -264,7 +279,7 @@ where
     }
 }
 
-impl<'a, T> Deref for QueueRwLockWriteGuard<'a, T> {
+impl<T> Deref for QueueRwLockWriteGuard<'_, T> {
     type Target = T;
 
     #[inline]
@@ -273,14 +288,14 @@ impl<'a, T> Deref for QueueRwLockWriteGuard<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for QueueRwLockWriteGuard<'a, T> {
+impl<T> DerefMut for QueueRwLockWriteGuard<'_, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.write
     }
 }
 
-impl<'a, T> Display for QueueRwLockWriteGuard<'a, T>
+impl<T> Display for QueueRwLockWriteGuard<'_, T>
 where
     T: Display,
 {
@@ -292,52 +307,55 @@ where
 #[cfg(test)]
 #[tokio::test]
 async fn check_deadlock() -> Result<(), Error> {
-    use crate::deadlock::lock_held;
+    use crate::primitives::locks_held::has_lock_held;
 
-    crate::with_deadlock_check(async move {
-        let lock = QueueRwLock::new(());
-        let q = lock.queue().await?;
+    crate::with_deadlock_check(
+        async move {
+            let lock = QueueRwLock::new((), "main_lock");
+            let q = lock.queue().await?;
 
-        assert!(lock_held().unwrap());
+            assert!(has_lock_held());
 
-        // Cannot queue or read again inside the same task.
-        assert!(lock.queue().await.is_err());
-        assert!(lock.read().await.is_err());
+            // Cannot queue or read again inside the same task.
+            assert!(lock.queue().await.is_err());
+            assert!(lock.read().await.is_ok());
 
-        let w = q.write().await?;
+            let w = q.write().await?;
 
-        assert!(lock_held().unwrap());
+            assert!(has_lock_held());
 
-        // No queue or read under write
-        assert!(lock.queue().await.is_err());
-        assert!(lock.read().await.is_err());
+            // No queue or read under write
+            assert!(lock.queue().await.is_err());
+            assert!(lock.read().await.is_err());
 
-        drop(w);
+            drop(w);
 
-        assert!(!lock_held().unwrap());
+            assert!(!has_lock_held());
 
-        assert!(lock.queue().await.is_ok());
+            assert!(lock.queue().await.is_ok());
 
-        assert!(!lock_held().unwrap());
+            assert!(!has_lock_held());
 
-        let _v = lock.read().await.unwrap();
+            let _v = lock.read().await.unwrap();
 
-        assert!(lock_held().unwrap());
+            assert!(has_lock_held());
 
-        // can read many time inside the same task.
-        assert!(lock.read().await.is_err());
+            // can read many time inside the same task.
+            assert!(lock.read().await.is_ok());
 
-        Ok(())
-    })
+            Ok(())
+        },
+        "lock_test".into(),
+    )
     .await
 }
 
 #[cfg(test)]
 #[tokio::test]
 async fn should_error_if_run_without_deadlock_check() {
-    use crate::deadlock::lock_held;
+    use crate::primitives::locks_held::has_lock_held;
 
-    let lock = QueueRwLock::new(());
+    let lock = QueueRwLock::new((), "main_lock");
 
     assert_eq!(
         lock.queue().await.unwrap_err(),
@@ -349,5 +367,5 @@ async fn should_error_if_run_without_deadlock_check() {
         Error::NotDeadlockCheckFuture
     );
 
-    assert_eq!(lock_held().unwrap_err(), Error::NotDeadlockCheckFuture);
+    assert!(!has_lock_held());
 }

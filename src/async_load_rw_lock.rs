@@ -117,7 +117,7 @@ impl<T> Default for AsyncLoadRwLock<T> {
 
 pub struct AsyncLoadRwLockReadGuard<'a, T>(RwLockReadGuard<'a, Option<T>>);
 
-impl<'a, T> fmt::Debug for AsyncLoadRwLockReadGuard<'a, T>
+impl<T> fmt::Debug for AsyncLoadRwLockReadGuard<'_, T>
 where
     T: fmt::Debug,
 {
@@ -126,7 +126,7 @@ where
     }
 }
 
-impl<'a, T> fmt::Display for AsyncLoadRwLockReadGuard<'a, T>
+impl<T> fmt::Display for AsyncLoadRwLockReadGuard<'_, T>
 where
     T: fmt::Display,
 {
@@ -151,7 +151,7 @@ impl<'a, T> AsyncLoadRwLockWriteGuard<'a, T> {
     }
 }
 
-impl<'a, T> fmt::Debug for AsyncLoadRwLockWriteGuard<'a, T>
+impl<T> fmt::Debug for AsyncLoadRwLockWriteGuard<'_, T>
 where
     T: fmt::Debug,
 {
@@ -160,7 +160,7 @@ where
     }
 }
 
-impl<'a, T> fmt::Display for AsyncLoadRwLockWriteGuard<'a, T>
+impl<T> fmt::Display for AsyncLoadRwLockWriteGuard<'_, T>
 where
     T: fmt::Display,
 {

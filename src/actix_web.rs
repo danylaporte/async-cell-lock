@@ -48,7 +48,39 @@ where
     }
 
     fn call(&self, req: ServiceRequest) -> Self::Future {
-        Box::pin(with_deadlock_check(self.service.call(req)))
+        let route = req.match_pattern().unwrap_or_else(|| "default".into());
+        let method = req.method().as_str().to_string();
+        let task_name = format!("{method} {route}");
+
+        #[cfg(feature = "telemetry")]
+        let active_gauge = metrics::gauge!(
+            "active_http_req_in_gauge",
+            "route" => route.clone(),
+            "method" => method.clone()
+        );
+
+        let f = self.service.call(req);
+
+        Box::pin(async move {
+            #[cfg(feature = "telemetry")]
+            metrics::counter!(
+                "http_req_in_counter",
+                "route" => route.clone(),
+                "method" => method.clone()
+            )
+            .increment(1);
+
+            #[cfg(feature = "telemetry")]
+            let complete = metrics::counter!("http_req_in_completed_count", "route" => route, "method" => method);
+
+            #[cfg(feature = "telemetry")]
+            let _active = crate::monitors::ActiveGauge::new(active_gauge);
+
+            #[cfg(feature = "telemetry")]
+            let _complete = crate::monitors::CountOnEnd(complete);
+
+            with_deadlock_check(f, task_name).await
+        })
     }
 }
 

@@ -1,6 +1,6 @@
+use crate::sync::async_mutex::Mutex;
 use once_cell::sync::OnceCell;
 use std::future::Future;
-use tokio::sync::Mutex;
 
 pub struct AsyncOnceCell<T> {
     cell: OnceCell<T>,
@@ -11,7 +11,7 @@ impl<T> AsyncOnceCell<T> {
     pub const fn new() -> Self {
         Self {
             cell: OnceCell::new(),
-            lock: Mutex::const_new(()),
+            lock: Mutex::new((), "async-once-cell"),
         }
     }
 
@@ -21,7 +21,7 @@ impl<T> AsyncOnceCell<T> {
 
         Self {
             cell,
-            lock: Mutex::const_new(()),
+            lock: Mutex::new((), "async-once-cell"),
         }
     }
 
@@ -100,7 +100,7 @@ impl<T> Default for AsyncOnceCell<T> {
     fn default() -> Self {
         Self {
             cell: OnceCell::new(),
-            lock: Mutex::new(()),
+            lock: Mutex::new((), "async-once-cell"),
         }
     }
 }
