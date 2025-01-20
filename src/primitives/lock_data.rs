@@ -1,4 +1,4 @@
-use super::Task;
+use super::{Ops, Task};
 use crate::{new_id, Error, Result};
 use parking_lot::Mutex;
 use std::sync::{
@@ -30,7 +30,7 @@ impl LockData {
         self.locked_tasks.lock().push(task);
     }
 
-    pub fn check_deadlock(&self, op: &str, locks_held: &[u64]) -> Result<()> {
+    pub fn check_deadlock(&self, op: Ops, locks_held: &[u64]) -> Result<()> {
         for t in self.locked_tasks.lock().iter() {
             let id = t.await_lock_id();
 

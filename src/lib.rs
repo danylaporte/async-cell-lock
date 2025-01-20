@@ -16,7 +16,7 @@ pub use async_load_rw_lock::*;
 pub use async_once_cell::*;
 #[cfg(feature = "telemetry")]
 pub use deadlock::warn_lock_held;
-pub use deadlock::with_deadlock_check;
+pub use deadlock::{spawn_with_deadlock_check, with_deadlock_check};
 pub use error::Error;
 pub use queue_rw_lock::*;
 use utils::*;

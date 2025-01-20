@@ -1,5 +1,5 @@
 use crate::{
-    primitives::{LockAwaitGuard, LockData, LockHeldGuard},
+    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
     Error,
 };
 use std::{
@@ -44,7 +44,7 @@ impl<T> QueueRwLock<T> {
         if let Ok(mutex) = self.mutex.try_lock() {
             if let Ok(read) = self.rwlock.try_read() {
                 return Ok(QueueRwLockQueueGuard {
-                    active: LockHeldGuard::new_no_wait(&self.lock_data, "queue")?,
+                    active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Queue)?,
                     mutex,
                     queue: self,
                     read,
@@ -52,7 +52,7 @@ impl<T> QueueRwLock<T> {
             }
         }
 
-        let wait = LockAwaitGuard::new(&self.lock_data, "queue")?;
+        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Queue)?;
         let mutex = self.mutex.lock().await;
         let read = self.rwlock.read().await;
 
@@ -68,13 +68,13 @@ impl<T> QueueRwLock<T> {
     pub async fn read(&self) -> Result<QueueRwLockReadGuard<'_, T>, Error> {
         if let Ok(read) = self.rwlock.try_read() {
             return Ok(QueueRwLockReadGuard {
-                active: LockHeldGuard::new_no_wait(&self.lock_data, "read")?,
+                active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Read)?,
                 queue: self,
                 read,
             });
         }
 
-        let wait = LockAwaitGuard::new(&self.lock_data, "read")?;
+        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Read)?;
         let read = self.rwlock.read().await;
 
         Ok(QueueRwLockReadGuard {
@@ -90,7 +90,7 @@ impl<T> QueueRwLock<T> {
         // mutex must be locked first, before the read.
         let mutex = self.mutex.try_lock().ok()?;
         let read = self.rwlock.try_read().ok()?;
-        let active = LockHeldGuard::new_no_wait(&self.lock_data, "queue").ok()?;
+        let active = LockHeldGuard::new_no_wait(&self.lock_data, Ops::Queue).ok()?;
 
         Some(QueueRwLockQueueGuard {
             active,
@@ -189,13 +189,13 @@ impl<'a, T> QueueRwLockQueueGuard<'a, T> {
             drop(self.mutex);
 
             return Ok(QueueRwLockWriteGuard {
-                active: LockHeldGuard::new_no_wait(&queue.lock_data, "write")?,
+                active: LockHeldGuard::new_no_wait(&queue.lock_data, Ops::Write)?,
                 queue,
                 write,
             });
         }
 
-        let wait = LockAwaitGuard::new(&queue.lock_data, "write")?;
+        let wait = LockAwaitGuard::new(&queue.lock_data, Ops::Write)?;
         let write = queue.rwlock.write().await;
 
         // emphasis here that the mutex must be dropped after the write.
@@ -345,7 +345,7 @@ async fn check_deadlock() -> Result<(), Error> {
 
             Ok(())
         },
-        "lock_test".into(),
+        "lock_test",
     )
     .await
 }

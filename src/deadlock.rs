@@ -1,6 +1,25 @@
 use crate::primitives::{locks_held, task};
+use std::future::Future;
+use tokio::task::JoinHandle;
 
-pub async fn with_deadlock_check<F, R>(f: F, task_name: String) -> R
+pub fn spawn_with_deadlock_check<F, S>(f: F, task_name: S) -> JoinHandle<F::Output>
+where
+    F: Future + Send + 'static,
+    F::Output: Send + 'static,
+    S: Into<String>,
+{
+    tokio::spawn(with_deadlock_check(f, task_name.into()))
+}
+
+pub fn with_deadlock_check<F, R, S>(f: F, task_name: S) -> impl Future<Output = R>
+where
+    F: std::future::Future<Output = R>,
+    S: Into<String>,
+{
+    with_deadlock_check_imp(f, task_name.into())
+}
+
+pub async fn with_deadlock_check_imp<F, R>(f: F, task_name: String) -> R
 where
     F: std::future::Future<Output = R>,
 {

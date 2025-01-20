@@ -9,3 +9,7 @@ pub(crate) fn new_id() -> u64 {
 
     id
 }
+
+pub(crate) fn is_async() -> bool {
+    tokio::runtime::Handle::try_current().is_ok()
+}

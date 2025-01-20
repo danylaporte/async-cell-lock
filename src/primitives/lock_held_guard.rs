@@ -1,4 +1,4 @@
-use super::{locks_held, task, LockAwaitGuard, LockData, Task};
+use super::{locks_held, task, LockAwaitGuard, LockData, Ops, Task};
 use crate::Result;
 use std::{
     sync::Arc,
@@ -13,7 +13,7 @@ pub(crate) struct LockHeldGuard<'a> {
     lock_data: &'a LockData,
 
     #[cfg(feature = "telemetry")]
-    op: &'static str,
+    op: Ops,
 
     task: Arc<Task>,
 }
@@ -23,29 +23,27 @@ impl<'a> LockHeldGuard<'a> {
         Self::new_imp(guard.lock_data, guard.op, Arc::clone(&guard.task))
     }
 
-    pub fn new_no_wait(lock_data: &'a LockData, op: &'static str) -> Result<Self> {
+    pub fn new_no_wait(lock_data: &'a LockData, op: Ops) -> Result<Self> {
         let task = task::current()?;
 
         Self::new_imp(lock_data, op, task)
     }
 
     #[cfg_attr(not(feature = "telemetry"), allow(unused_variables))]
-    fn new_imp(lock_data: &'a LockData, op: &'static str, task: Arc<Task>) -> Result<Self> {
+    fn new_imp(lock_data: &'a LockData, op: Ops, task: Arc<Task>) -> Result<Self> {
         locks_held::add_lock(lock_data.id())?;
         lock_data.add_task(Arc::clone(&task));
 
         #[cfg(feature = "telemetry")]
-        metrics::counter!("lock_held_counter", "name" => lock_data.name, "op" => op).increment(1);
+        metrics::counter!("lock_held_counter", "name" => lock_data.name, "op" => op, "task" => task.name.clone()).increment(1);
 
         Ok(Self {
             instant: Instant::now(),
             lock_data,
-            task,
 
             #[cfg(feature = "telemetry")]
             gauge: {
-                let gauge =
-                    metrics::gauge!("lock_held_gauge", "name" => lock_data.name, "op" => op);
+                let gauge = metrics::gauge!("lock_held_gauge", "name" => lock_data.name, "op" => op, "task" => task.name.clone());
 
                 gauge.increment(1.0);
                 gauge
@@ -53,29 +51,35 @@ impl<'a> LockHeldGuard<'a> {
 
             #[cfg(feature = "telemetry")]
             op,
+
+            task,
         })
     }
 
     #[cfg(feature = "telemetry")]
     fn drop_telemetry(&mut self) {
-        const LONG_LOCK: Duration = Duration::from_secs(30);
-
         let elapsed = self.instant.elapsed();
+        let recommend_dur = self.op.recommend_dur();
 
-        if elapsed > LONG_LOCK {
+        if elapsed > recommend_dur {
             let _ = tracing::warn_span!(
                 "Lock held for too long",
-                elapsed_secs = elapsed.as_secs(),
-                name = self.lock_data.name,
-                op = self.op
+                elasped_ms = elapsed.as_millis(),
+                lock_name = self.lock_data.name,
+                lock_op = self.op.as_str(),
+                recommend_dur_ms = recommend_dur.as_millis(),
+                task_name = &self.task.name,
             )
             .entered();
         }
 
-        metrics::counter!("lock_held_ms", "name" => self.lock_data.name, "op" => self.op)
+        metrics::counter!("lock_held_for_too_long", "name" => self.lock_data.name, "op" => self.op, "task" => self.task.name.clone())
             .increment(elapsed.as_millis() as u64);
 
-        metrics::counter!("lock_release_counter", "name" => self.lock_data.name, "op" => self.op)
+        metrics::counter!("lock_held_ms", "name" => self.lock_data.name, "op" => self.op, "task" => self.task.name.clone())
+            .increment(elapsed.as_millis() as u64);
+
+        metrics::counter!("lock_release_counter", "name" => self.lock_data.name, "op" => self.op, "task" => self.task.name.clone())
             .increment(1);
 
         self.gauge.decrement(1.0);

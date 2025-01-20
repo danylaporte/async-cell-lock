@@ -14,7 +14,7 @@ tokio = { version = "1", features = ["parking_lot", "rt", "sync"], default-featu
 tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "parking_lot", "rt", "sync"], default-features = false }
+tokio = { version = "1", features = ["macros", "parking_lot", "rt", "rt-multi-thread" ,"sync", "time"], default-features = false }
 
 [features]
 telemetry = ["metrics", "tracing"]

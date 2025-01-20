@@ -1,5 +1,5 @@
 use crate::{
-    primitives::{LockAwaitGuard, LockData, LockHeldGuard},
+    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
     Result,
 };
 use std::ops::{Deref, DerefMut};
@@ -28,12 +28,12 @@ impl<T> Mutex<T> {
     pub async fn lock(&self) -> Result<MutexGuard<'_, T>> {
         if let Ok(guard) = self.mutex.try_lock() {
             return Ok(MutexGuard {
-                _active: LockHeldGuard::new_no_wait(&self.lock_data, "lock")?,
+                _active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Write)?,
                 guard,
             });
         }
 
-        let wait = LockAwaitGuard::new(&self.lock_data, "lock")?;
+        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Write)?;
         let guard = self.mutex.lock().await;
         let _active = LockHeldGuard::new(wait)?;
 
@@ -60,4 +60,47 @@ impl<T> DerefMut for MutexGuard<'_, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
     }
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn can_keep_lock_across_await_point() {
+    crate::with_deadlock_check(
+        async move {
+            let rwlock = std::sync::Arc::new(Mutex::new((), "test"));
+            let spawn_rwlock = rwlock.clone();
+            let g = rwlock.lock().await.unwrap();
+
+            let j = crate::spawn_with_deadlock_check(
+                async move {
+                    assert!(spawn_rwlock.lock().await.is_ok());
+                },
+                "test",
+            );
+
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+            drop(g);
+
+            j.await.unwrap();
+        },
+        "test",
+    )
+    .await
+}
+
+#[cfg(test)]
+#[tokio::test]
+async fn recursive_call_returns_an_error() {
+    crate::with_deadlock_check(
+        async move {
+            let mutex = Mutex::new((), "test");
+
+            let _g = mutex.lock().await.unwrap();
+
+            assert!(mutex.lock().await.is_err());
+        },
+        "test",
+    )
+    .await
 }

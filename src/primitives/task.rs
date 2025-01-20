@@ -1,4 +1,4 @@
-use super::LockData;
+use super::{LockData, Ops};
 use crate::{Error, Result};
 use std::{
     future::Future,
@@ -23,7 +23,7 @@ impl Task {
         self.await_lock_id.load(Relaxed)
     }
 
-    pub fn set_await_lock_id(&self, lock_data: &LockData, op: &str) -> Result<()> {
+    pub fn set_await_lock_id(&self, lock_data: &LockData, op: Ops) -> Result<()> {
         match self
             .await_lock_id
             .compare_exchange(0, lock_data.id(), Relaxed, Relaxed)

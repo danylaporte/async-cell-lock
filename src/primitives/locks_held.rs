@@ -1,4 +1,4 @@
-use super::LockData;
+use super::{LockData, Ops};
 use crate::{Error, Result};
 use std::{cell::RefCell, convert::identity, future::Future};
 use tokio::{task::futures::TaskLocalFuture, task_local};
@@ -13,7 +13,7 @@ pub(crate) fn add_lock(lock_id: u64) -> Result<()> {
     try_with(|locks_held| locks_held.push(lock_id))
 }
 
-pub(crate) fn check_deadlock(lock_data: &LockData, op: &str) -> Result<()> {
+pub(crate) fn check_deadlock(lock_data: &LockData, op: Ops) -> Result<()> {
     try_with(|locks_held| {
         if locks_held.contains(&lock_data.id()) {
             return Err(Error::recursive_lock(lock_data, op));
