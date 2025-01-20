@@ -1,6 +1,6 @@
 [package]
 name = "async-cell-lock"
-version = "1.5.0"
+version = "1.6.0"
 authors = ["Dany Laporte <dany_laporte@hotmail.com>"]
 edition = "2021"
 publish = false
