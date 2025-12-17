@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 actix_web_04 = { package = "actix-web", version = "4", optional = true }
-metrics = { version = "0.24", optional = true }
+metrics = { version = "0.22", optional = true }
 parking_lot = "0.12"
 once_cell = { version = "1", features = ["parking_lot"] }
 tokio = { version = "1", features = ["parking_lot", "rt", "sync"], default-features = false }
