@@ -1,9 +1,9 @@
 use super::{Ops, Task};
-use crate::{new_id, Error, Result};
+use crate::{Error, Result, new_id};
 use parking_lot::Mutex;
 use std::sync::{
-    atomic::{AtomicU64, Ordering::Relaxed},
     Arc,
+    atomic::{AtomicU64, Ordering::Relaxed},
 };
 
 pub struct LockData {

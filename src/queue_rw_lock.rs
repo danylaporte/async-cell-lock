@@ -1,6 +1,6 @@
 use crate::{
-    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
     Error,
+    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
 };
 use std::{
     fmt::{self, Debug, Display, Formatter},
@@ -41,15 +41,15 @@ impl<T> QueueRwLock<T> {
 
     /// Enqueue to gain access to the write.
     pub async fn queue(&self) -> Result<QueueRwLockQueueGuard<'_, T>, Error> {
-        if let Ok(mutex) = self.mutex.try_lock() {
-            if let Ok(read) = self.rwlock.try_read() {
-                return Ok(QueueRwLockQueueGuard {
-                    active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Queue)?,
-                    mutex,
-                    queue: self,
-                    read,
-                });
-            }
+        if let Ok(mutex) = self.mutex.try_lock()
+            && let Ok(read) = self.rwlock.try_read()
+        {
+            return Ok(QueueRwLockQueueGuard {
+                active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Queue)?,
+                mutex,
+                queue: self,
+                read,
+            });
         }
 
         let wait = LockAwaitGuard::new(&self.lock_data, Ops::Queue)?;

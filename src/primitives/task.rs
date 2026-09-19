@@ -3,8 +3,8 @@ use crate::{Error, Result};
 use std::{
     future::Future,
     sync::{
-        atomic::{AtomicU64, Ordering::Relaxed},
         Arc,
+        atomic::{AtomicU64, Ordering::Relaxed},
     },
 };
 use tokio::{task::futures::TaskLocalFuture, task_local};

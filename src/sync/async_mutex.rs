@@ -1,6 +1,6 @@
 use crate::{
-    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
     Result,
+    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
 };
 use std::ops::{Deref, DerefMut};
 

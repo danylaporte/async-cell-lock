@@ -1,7 +1,6 @@
 use crate::{
-    is_async,
+    Error, Result, is_async,
     primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
-    Error, Result,
 };
 use std::{
     ops::{Deref, DerefMut},

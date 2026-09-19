@@ -1,10 +1,10 @@
 use crate::with_deadlock_check;
 use actix_web_04::{
-    dev::{Service, ServiceRequest, ServiceResponse, Transform},
     Error,
+    dev::{Service, ServiceRequest, ServiceResponse, Transform},
 };
 use std::{
-    future::{ready, Future, Ready},
+    future::{Future, Ready, ready},
     pin::Pin,
     task::{Context, Poll},
 };

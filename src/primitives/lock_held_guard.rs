@@ -1,4 +1,4 @@
-use super::{locks_held, task, LockAwaitGuard, LockData, Ops, Task};
+use super::{LockAwaitGuard, LockData, Ops, Task, locks_held, task};
 use crate::Result;
 use std::{
     sync::Arc,
