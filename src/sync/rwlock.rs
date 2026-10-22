@@ -1,11 +1,9 @@
+use super::acquire_sync;
 use crate::{
-    Error, Result, is_async,
-    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
+    Result,
+    primitives::{LockData, LockHeldGuard, Ops},
 };
-use std::{
-    ops::{Deref, DerefMut},
-    time::Duration,
-};
+use std::ops::{Deref, DerefMut};
 
 /// This is a sync RwLock based on [parking_lot::RwLock] that should not deadlock
 /// even when used inside async context across await point.
@@ -22,65 +20,44 @@ impl<T> RwLock<T> {
         }
     }
 
+    #[inline]
     pub fn get_mut(&mut self) -> &mut T {
         self.rwlock.get_mut()
     }
 
+    #[inline]
     pub fn into_inner(self) -> T {
         self.rwlock.into_inner()
     }
 
     pub fn read(&self) -> Result<RwLockReadGuard<'_, T>> {
-        if let Some(guard) = self.rwlock.try_read() {
-            return Ok(RwLockReadGuard {
-                _active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Read)?,
-                guard,
-            });
-        }
+        let rw = &self.rwlock;
+        let (_active, guard) = acquire_sync(
+            &self.lock_data,
+            Ops::Read,
+            || rw.try_read(),
+            |timeout| rw.try_read_for(timeout),
+            || rw.read(),
+        )?;
 
-        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Read)?;
-
-        let guard = if is_async() {
-            match self.rwlock.try_read_for(Duration::from_millis(50)) {
-                Some(guard) => guard,
-                None => return Err(Error::sync_lock_timeout(&self.lock_data, Ops::Read)),
-            }
-        } else {
-            self.rwlock.read()
-        };
-
-        Ok(RwLockReadGuard {
-            _active: LockHeldGuard::new(wait)?,
-            guard,
-        })
+        Ok(RwLockReadGuard { _active, guard })
     }
 
     pub fn write(&self) -> Result<RwLockWriteGuard<'_, T>> {
-        if let Some(guard) = self.rwlock.try_write() {
-            return Ok(RwLockWriteGuard {
-                _active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Write)?,
-                guard,
-            });
-        }
+        let rw = &self.rwlock;
+        let (_active, guard) = acquire_sync(
+            &self.lock_data,
+            Ops::Write,
+            || rw.try_write(),
+            |timeout| rw.try_write_for(timeout),
+            || rw.write(),
+        )?;
 
-        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Write)?;
-
-        let guard = if is_async() {
-            match self.rwlock.try_write_for(Duration::from_millis(50)) {
-                Some(guard) => guard,
-                None => return Err(Error::sync_lock_timeout(&self.lock_data, Ops::Write)),
-            }
-        } else {
-            self.rwlock.write()
-        };
-
-        Ok(RwLockWriteGuard {
-            _active: LockHeldGuard::new(wait)?,
-            guard,
-        })
+        Ok(RwLockWriteGuard { _active, guard })
     }
 }
 
+#[must_use = "if unused the RwLock will immediately unlock"]
 pub struct RwLockReadGuard<'a, T> {
     _active: LockHeldGuard<'a>,
     guard: parking_lot::RwLockReadGuard<'a, T>,
@@ -95,6 +72,7 @@ impl<T> Deref for RwLockReadGuard<'_, T> {
     }
 }
 
+#[must_use = "if unused the RwLock will immediately unlock"]
 pub struct RwLockWriteGuard<'a, T> {
     _active: LockHeldGuard<'a>,
     guard: parking_lot::RwLockWriteGuard<'a, T>,

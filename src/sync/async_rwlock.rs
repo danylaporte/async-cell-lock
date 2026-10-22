@@ -1,9 +1,11 @@
+use super::acquire_async;
 use crate::{
     Result,
-    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
+    primitives::{LockData, LockHeldGuard, Ops},
 };
 use std::ops::{Deref, DerefMut};
 
+/// An async RwLock based on [tokio::sync::RwLock] with deadlock detection.
 pub struct RwLock<T> {
     lock_data: LockData,
     rwlock: tokio::sync::RwLock<T>,
@@ -17,45 +19,37 @@ impl<T> RwLock<T> {
         }
     }
 
+    #[inline]
     pub fn get_mut(&mut self) -> &mut T {
         self.rwlock.get_mut()
     }
 
+    #[inline]
     pub fn into_inner(self) -> T {
         self.rwlock.into_inner()
     }
 
     pub async fn read(&self) -> Result<RwLockReadGuard<'_, T>> {
-        if let Ok(guard) = self.rwlock.try_read() {
-            return Ok(RwLockReadGuard {
-                _active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Read)?,
-                guard,
-            });
-        }
-
-        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Read)?;
-        let guard = self.rwlock.read().await;
-        let _active = LockHeldGuard::new(wait)?;
+        let rw = &self.rwlock;
+        let (_active, guard) =
+            acquire_async(&self.lock_data, Ops::Read, rw.try_read().ok(), || rw.read()).await?;
 
         Ok(RwLockReadGuard { _active, guard })
     }
 
     pub async fn write(&self) -> Result<RwLockWriteGuard<'_, T>> {
-        if let Ok(guard) = self.rwlock.try_write() {
-            return Ok(RwLockWriteGuard {
-                _active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Write)?,
-                guard,
-            });
-        }
-
-        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Write)?;
-        let guard = self.rwlock.write().await;
-        let _active = LockHeldGuard::new(wait)?;
+        let rw = &self.rwlock;
+        let (_active, guard) =
+            acquire_async(&self.lock_data, Ops::Write, rw.try_write().ok(), || {
+                rw.write()
+            })
+            .await?;
 
         Ok(RwLockWriteGuard { _active, guard })
     }
 }
 
+#[must_use = "if unused the RwLock will immediately unlock"]
 pub struct RwLockReadGuard<'a, T> {
     _active: LockHeldGuard<'a>,
     guard: tokio::sync::RwLockReadGuard<'a, T>,
@@ -70,6 +64,7 @@ impl<T> Deref for RwLockReadGuard<'_, T> {
     }
 }
 
+#[must_use = "if unused the RwLock will immediately unlock"]
 pub struct RwLockWriteGuard<'a, T> {
     _active: LockHeldGuard<'a>,
     guard: tokio::sync::RwLockWriteGuard<'a, T>,

@@ -1,9 +1,11 @@
+use super::acquire_async;
 use crate::{
     Result,
-    primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
+    primitives::{LockData, LockHeldGuard, Ops},
 };
 use std::ops::{Deref, DerefMut};
 
+/// An async Mutex based on [tokio::sync::Mutex] with deadlock detection.
 pub struct Mutex<T> {
     lock_data: LockData,
     mutex: tokio::sync::Mutex<T>,
@@ -17,30 +19,26 @@ impl<T> Mutex<T> {
         }
     }
 
+    #[inline]
     pub fn get_mut(&mut self) -> &mut T {
         self.mutex.get_mut()
     }
 
+    #[inline]
     pub fn into_inner(self) -> T {
         self.mutex.into_inner()
     }
 
     pub async fn lock(&self) -> Result<MutexGuard<'_, T>> {
-        if let Ok(guard) = self.mutex.try_lock() {
-            return Ok(MutexGuard {
-                _active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Write)?,
-                guard,
-            });
-        }
-
-        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Write)?;
-        let guard = self.mutex.lock().await;
-        let _active = LockHeldGuard::new(wait)?;
+        let m = &self.mutex;
+        let (_active, guard) =
+            acquire_async(&self.lock_data, Ops::Write, m.try_lock().ok(), || m.lock()).await?;
 
         Ok(MutexGuard { _active, guard })
     }
 }
 
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, T> {
     _active: LockHeldGuard<'a>,
     guard: tokio::sync::MutexGuard<'a, T>,
