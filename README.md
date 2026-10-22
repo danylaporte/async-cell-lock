@@ -199,10 +199,13 @@ return `Error::SyncLockTimeout` instead of blocking the runtime thread indefinit
 
 ## Cells
 
-These types are not deadlock-checked and do not need a deadlock-check scope.
+These types do not need a deadlock-check scope.
 
 - `AsyncOnceCell<T>`: a cell initialized once by an async (`get_or_init`, `get_or_try_init`)
-  or sync (`get_or_init_sync`, `get_or_try_init_sync`) initializer.
+  or sync (`get_or_init_sync`, `get_or_try_init_sync`) initializer. Reading an initialized
+  value is a single atomic load, and concurrent async initializers run the initializer only
+  once. Inside a deadlock-check scope, a recursive or deadlocking initialization falls back to
+  an unsynchronized initialization (first value stored wins) instead of hanging.
 - `AsyncLoadRwLock<T>`: a `tokio::sync::RwLock<Option<T>>` that lazily loads its value on the
   first `read_or_init` / `write_or_init` (or the `try_` variants). Write guards can be
   downgraded to read guards.
