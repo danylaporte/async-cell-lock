@@ -206,7 +206,8 @@ These types do not need a deadlock-check scope.
   value is a single atomic load, and concurrent async initializers run the initializer only
   once. Inside a deadlock-check scope, a recursive or deadlocking initialization falls back to
   an unsynchronized initialization (first value stored wins) instead of hanging.
-- `AsyncLoadRwLock<T>`: a `tokio::sync::RwLock<Option<T>>` that lazily loads its value on the
+- `AsyncLoadRwLock<T>` (**deprecated**; use `AsyncOnceCell` or
+  `sync::async_rwlock::RwLock<Option<T>>` instead): a `tokio::sync::RwLock<Option<T>>` that lazily loads its value on the
   first `read_or_init` / `write_or_init` (or the `try_` variants). Write guards can be
   downgraded to read guards.
 

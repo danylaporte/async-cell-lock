@@ -19,6 +19,7 @@ mod utils;
 extern crate self as async_cell_lock;
 
 pub use async_cell_lock_macros::{deadlock_check, tokio_test};
+#[allow(deprecated)]
 pub use async_load_rw_lock::*;
 pub use async_once_cell::*;
 #[cfg(feature = "telemetry")]
