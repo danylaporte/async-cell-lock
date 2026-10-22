@@ -3,7 +3,9 @@
 use std::{fmt, future::Future, mem::replace, ops};
 use tokio::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-#[deprecated(note = "unused; use `AsyncOnceCell` or `sync::async_rwlock::RwLock<Option<T>>` instead")]
+#[deprecated(
+    note = "unused; use `AsyncOnceCell` or `sync::async_rwlock::RwLock<Option<T>>` instead"
+)]
 pub struct AsyncLoadRwLock<T>(RwLock<Option<T>>);
 
 impl<T> AsyncLoadRwLock<T> {
@@ -114,7 +116,9 @@ impl<T> Default for AsyncLoadRwLock<T> {
     }
 }
 
-#[deprecated(note = "unused; use `AsyncOnceCell` or `sync::async_rwlock::RwLock<Option<T>>` instead")]
+#[deprecated(
+    note = "unused; use `AsyncOnceCell` or `sync::async_rwlock::RwLock<Option<T>>` instead"
+)]
 pub struct AsyncLoadRwLockReadGuard<'a, T>(RwLockReadGuard<'a, T>);
 
 impl<T> fmt::Debug for AsyncLoadRwLockReadGuard<'_, T>
@@ -144,13 +148,16 @@ impl<T> ops::Deref for AsyncLoadRwLockReadGuard<'_, T> {
     }
 }
 
-#[deprecated(note = "unused; use `AsyncOnceCell` or `sync::async_rwlock::RwLock<Option<T>>` instead")]
+#[deprecated(
+    note = "unused; use `AsyncOnceCell` or `sync::async_rwlock::RwLock<Option<T>>` instead"
+)]
 pub struct AsyncLoadRwLockWriteGuard<'a, T>(RwLockWriteGuard<'a, Option<T>>);
 
 impl<'a, T> AsyncLoadRwLockWriteGuard<'a, T> {
     pub fn downgrade(self) -> AsyncLoadRwLockReadGuard<'a, T> {
         AsyncLoadRwLockReadGuard(RwLockReadGuard::map(self.0.downgrade(), |o| {
-            o.as_ref().expect("AsyncLoadRwLockWriteGuard always holds a value")
+            o.as_ref()
+                .expect("AsyncLoadRwLockWriteGuard always holds a value")
         }))
     }
 }
@@ -178,14 +185,18 @@ impl<T> ops::Deref for AsyncLoadRwLockWriteGuard<'_, T> {
 
     #[inline]
     fn deref(&self) -> &T {
-        self.0.as_ref().expect("AsyncLoadRwLockWriteGuard always holds a value")
+        self.0
+            .as_ref()
+            .expect("AsyncLoadRwLockWriteGuard always holds a value")
     }
 }
 
 impl<T> ops::DerefMut for AsyncLoadRwLockWriteGuard<'_, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut T {
-        self.0.as_mut().expect("AsyncLoadRwLockWriteGuard always holds a value")
+        self.0
+            .as_mut()
+            .expect("AsyncLoadRwLockWriteGuard always holds a value")
     }
 }
 
@@ -226,7 +237,13 @@ mod tests {
         let lock = AsyncLoadRwLock::<u32>::new();
 
         assert!(lock.read_or_try_init(async { Err(()) }).await.is_err());
-        assert_eq!(*lock.read_or_try_init(async { Ok::<_, ()>(1) }).await.unwrap(), 1);
+        assert_eq!(
+            *lock
+                .read_or_try_init(async { Ok::<_, ()>(1) })
+                .await
+                .unwrap(),
+            1
+        );
         assert_eq!(*lock.read_or_init(async { 2 }).await, 1);
     }
 
@@ -242,9 +259,19 @@ mod tests {
     async fn get_mut_or_init_and_swap() {
         let mut lock = AsyncLoadRwLock::new();
         assert_eq!(*lock.get_mut_or_init(async { 1 }).await, 1);
-        assert_eq!(*lock.get_mut_or_try_init(async { Err::<i32, ()>(()) }).await.unwrap(), 1);
+        assert_eq!(
+            *lock
+                .get_mut_or_try_init(async { Err::<i32, ()>(()) })
+                .await
+                .unwrap(),
+            1
+        );
         assert_eq!(lock.swap(None), Some(1));
-        assert!(lock.get_mut_or_try_init(async { Err::<i32, ()>(()) }).await.is_err());
+        assert!(
+            lock.get_mut_or_try_init(async { Err::<i32, ()>(()) })
+                .await
+                .is_err()
+        );
         assert_eq!(lock.get_mut(), &None);
     }
 }

@@ -58,6 +58,11 @@ async fn helper(lock: &QueueRwLock<u32>, add: u32) -> Result<u32> {
 async fn plain_async_fn() -> Result<()> {
     let lock = QueueRwLock::new(1, "lock");
     assert_eq!(helper(&lock, 2).await?, 3);
-    assert_eq!(tokio::spawn(async move { helper(&lock, 4).await }).await.unwrap()?, 7);
+    assert_eq!(
+        tokio::spawn(async move { helper(&lock, 4).await })
+            .await
+            .unwrap()?,
+        7
+    );
     Ok(())
 }

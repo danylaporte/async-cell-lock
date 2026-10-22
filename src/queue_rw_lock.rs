@@ -1,6 +1,7 @@
 use crate::{
     Error,
     primitives::{LockAwaitGuard, LockData, LockHeldGuard, Ops},
+    sync::acquire_async,
 };
 use std::{
     fmt::{self, Debug, Display, Formatter},
@@ -9,6 +10,7 @@ use std::{
 };
 use tokio::sync::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+/// An async read/write lock with an extra *queue* step for writers.
 pub struct QueueRwLock<T> {
     lock_data: LockData,
     mutex: Mutex<()>,
@@ -35,6 +37,7 @@ impl<T> QueueRwLock<T> {
     }
 
     /// Consumes this `RwLock`, returning the underlying data.
+    #[inline]
     pub fn into_inner(self) -> T {
         self.rwlock.into_inner()
     }
@@ -66,19 +69,12 @@ impl<T> QueueRwLock<T> {
 
     /// Locks this `RwLock` with shared read access
     pub async fn read(&self) -> Result<QueueRwLockReadGuard<'_, T>, Error> {
-        if let Ok(read) = self.rwlock.try_read() {
-            return Ok(QueueRwLockReadGuard {
-                active: LockHeldGuard::new_no_wait(&self.lock_data, Ops::Read)?,
-                queue: self,
-                read,
-            });
-        }
-
-        let wait = LockAwaitGuard::new(&self.lock_data, Ops::Read)?;
-        let read = self.rwlock.read().await;
+        let rw = &self.rwlock;
+        let (active, read) =
+            acquire_async(&self.lock_data, Ops::Read, rw.try_read().ok(), || rw.read()).await?;
 
         Ok(QueueRwLockReadGuard {
-            active: LockHeldGuard::new(wait)?,
+            active,
             queue: self,
             read,
         })
@@ -107,6 +103,7 @@ impl<T: Default> Default for QueueRwLock<T> {
     }
 }
 
+#[must_use = "if unused the QueueRwLock will immediately unlock"]
 pub struct QueueRwLockReadGuard<'a, T> {
     active: LockHeldGuard<'a>,
     queue: &'a QueueRwLock<T>,
@@ -158,6 +155,7 @@ where
 /// While having this guard, you can prepare and do the hard work before
 /// obtaining the write access to the RwLock. This makes sure that the
 /// RwLock will be held exclusively as short as possible.
+#[must_use = "if unused the QueueRwLock will immediately unlock"]
 pub struct QueueRwLockQueueGuard<'a, T> {
     active: LockHeldGuard<'a>,
     mutex: MutexGuard<'a, ()>,
@@ -236,6 +234,7 @@ where
     }
 }
 
+#[must_use = "if unused the QueueRwLock will immediately unlock"]
 pub struct QueueRwLockWriteGuard<'a, T> {
     active: LockHeldGuard<'a>,
     queue: &'a QueueRwLock<T>,
@@ -243,6 +242,10 @@ pub struct QueueRwLockWriteGuard<'a, T> {
 }
 
 impl<'a, T> QueueRwLockWriteGuard<'a, T> {
+    pub fn elapsed(&self) -> Duration {
+        self.active.elapsed()
+    }
+
     pub async fn read(self) -> Result<QueueRwLockReadGuard<'a, T>, Error> {
         // drop the write lock before trying to acquire the read.
         drop(self.write);
@@ -368,4 +371,64 @@ async fn should_error_if_run_without_deadlock_check() {
     );
 
     assert!(!has_lock_held());
+}
+
+#[cfg(test)]
+#[crate::tokio_test]
+async fn guard_transitions() -> Result<(), Error> {
+    let lock = QueueRwLock::new(0u32, "transitions");
+
+    let mut w = lock.queue().await?.write().await?;
+    *w = 1;
+
+    let q = w.queue().await?;
+    assert_eq!(*q, 1);
+    assert!(lock.try_queue().is_none());
+
+    let mut w = q.write().await?;
+    *w = 2;
+
+    let r = w.read().await?;
+    assert_eq!(*r, 2);
+
+    let q = r.queue().await?;
+    assert!(lock.try_queue().is_none());
+    assert_eq!(*q.write().await?, 2);
+
+    Ok(())
+}
+
+#[cfg(test)]
+#[crate::tokio_test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_writers_are_serialized() -> Result<(), Error> {
+    use std::sync::Arc;
+
+    let lock = Arc::new(QueueRwLock::new(0u32, "counter"));
+    let handles = (0..32)
+        .map(|i| {
+            let lock = Arc::clone(&lock);
+
+            crate::spawn_with_deadlock_check(
+                async move {
+                    for _ in 0..50 {
+                        let q = lock.queue().await?;
+                        let next = *q + 1;
+                        tokio::task::yield_now().await;
+                        *q.write().await? = next;
+
+                        let _ = lock.read().await?;
+                    }
+                    Ok::<_, Error>(())
+                },
+                format!("writer-{i}"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    for h in handles {
+        h.await.unwrap()?;
+    }
+
+    assert_eq!(*lock.read().await?, 32 * 50);
+    Ok(())
 }

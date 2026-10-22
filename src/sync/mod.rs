@@ -54,7 +54,7 @@ fn acquire_sync_slow<'a, G>(
 
 /// Acquires an async lock, registering it for deadlock detection.
 #[inline]
-async fn acquire_async<'a, G, F>(
+pub(crate) async fn acquire_async<'a, G, F>(
     lock_data: &'a LockData,
     op: Ops,
     fast: Option<G>,
